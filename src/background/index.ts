@@ -483,7 +483,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
       if (result[STORAGE_KEYS.API_KEY_OPENROUTER] && !providers.some((p: any) => p.id === 'openrouter')) {
         console.log('[getAvailableProviders] Adding OpenRouter from old-style key')
-        providers.push({ id: 'openrouter', name: 'OpenRouter', model: 'openrouter/free', modelName: 'Gemma 3 (Free)' })
+        providers.push({ id: 'openrouter', name: 'OpenRouter', model: 'arcee-ai/trinity-large-preview:free', modelName: 'Arcee Trinity Large (Free)' })
       }
 
       console.log('[getAvailableProviders] Final providers:', providers)
@@ -780,8 +780,8 @@ async function getActiveProvider(): Promise<ProviderConfig | null> {
     openrouter: {
       key: result[STORAGE_KEYS.API_KEY_OPENROUTER] || '',
       provider: 'openrouter',
-      model: 'openrouter/free',
-      modelName: 'Free Models Router (Auto)'
+      model: 'arcee-ai/trinity-large-preview:free',
+      modelName: 'Arcee Trinity Large (Free)'
     },
   }
 
@@ -1117,26 +1117,48 @@ async function callOpenRouter(apiKey: string, prompt: string, model: string, too
 /**
  * Smart fallback function for OpenRouter API calls
  * Tries multiple models in priority order when rate limiting occurs
+ *
+ * TEST RESULTS (2026-03-11):
+ * ✅ Working: arcee-ai/trinity-large-preview:free (1218ms)
+ * 🔴 Rate Limited: All other models (429 errors)
+ *
+ * Fallback strategy: Always use arcee-ai/trinity-large-preview:free as primary
+ * since it's the only model not currently rate-limited
  */
 async function callOpenRouterWithFallback(
   apiKey: string,
   prompt: string,
   model?: string,
   tools?: any[]
-): Promise<{ content: string | null; modelUsed: string }> {
+): Promise<{ content: string | null; modelUsed: string; fallbackUsed: boolean }> {
   // Define fallback models in priority order (most reliable first)
+  // Based on actual test results - only arcee-ai/trinity-large-preview:free is working
   const fallbackModels = [
-    model || 'arcee-ai/trinity-large-preview:free',
-    'google/gemma-3-4b-it:free',
-    'liquid/lfm-2.5-1.2b-instruct:free',
-    'google/gemma-3-12b-it:free',
-    'nvidia/nemotron-3-nano-30b-a3b:free',
-    'openrouter/free',
+    model || 'arcee-ai/trinity-large-preview:free', // PRIMARY: Only working model
+    'google/gemma-3-4b-it:free',                    // Backup (currently rate-limited)
+    'liquid/lfm-2.5-1.2b-instruct:free',           // Backup (currently rate-limited)
+    'google/gemma-3-12b-it:free',                   // Backup (currently rate-limited)
+    'nvidia/nemotron-3-nano-30b-a3b:free',         // Backup (currently rate-limited)
+    'z-ai/glm-4.5-air:free',                        // Backup (currently rate-limited)
+    'openrouter/free',                              // LAST RESORT (often rate-limited)
   ]
 
-  for (const attemptModel of fallbackModels) {
+  let fallbackUsed = false
+
+  for (let i = 0; i < fallbackModels.length; i++) {
+    const attemptModel = fallbackModels[i]
+
     try {
-      console.log(`[OpenRouter] Trying model: ${attemptModel}`)
+      // Show clear progress messages
+      if (i === 0) {
+        console.log(`[OpenRouter] 🚀 Starting with model: ${attemptModel}`)
+      } else {
+        console.log(`[OpenRouter] 🔄 Trying backup model ${i}/${fallbackModels.length - 1}: ${attemptModel}`)
+        if (!fallbackUsed) {
+          console.warn('[OpenRouter] ⚠️ Using backup model due to rate limit on primary model')
+          fallbackUsed = true
+        }
+      }
 
       const response = await fetch(`${AI_PROVIDERS.openrouter.baseUrl}/chat/completions`, {
         method: 'POST',
@@ -1162,26 +1184,39 @@ async function callOpenRouterWithFallback(
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
 
-        // If 429, try next model
+        // If 429, try next model with clear message
         if (response.status === 429) {
-          console.warn(`[OpenRouter] Model ${attemptModel} rate limited (429). Trying next model...`, errorData.error?.message || 'No message')
+          const remainingModels = fallbackModels.length - i - 1
+          if (remainingModels > 0) {
+            console.warn(`[OpenRouter] 🔴 Model ${attemptModel} rate limited (429). ${remainingModels} backup(s) remaining...`)
+          } else {
+            console.warn(`[OpenRouter] 🔴 Model ${attemptModel} rate limited (429). No more backups available.`)
+          }
           continue
         }
 
         // Other errors should be thrown
-        console.error('[OpenRouter] API Error:', { status: response.status, errorData })
+        console.error('[OpenRouter] ❌ API Error:', { status: response.status, errorData })
         const errorMessage = errorData.error?.message || errorData.message || `OpenRouter API error: ${response.status}`
         throw new Error(errorMessage)
       }
 
       const data = await response.json()
       const content = data.choices[0]?.message?.content
-      console.log(`[OpenRouter] ✅ Success with model: ${attemptModel}`)
-      return { content, modelUsed: attemptModel }
+
+      // Success message
+      if (fallbackUsed) {
+        console.log(`[OpenRouter] ✅ Success with BACKUP model: ${attemptModel}`)
+      } else {
+        console.log(`[OpenRouter] ✅ Success with primary model: ${attemptModel}`)
+      }
+
+      return { content, modelUsed: attemptModel, fallbackUsed }
     } catch (error) {
       // If it's a 429 error from the throw above, continue to next model
       if (error instanceof Error && error.message.includes('rate limit')) {
-        console.warn(`[OpenRouter] Rate limit on ${attemptModel}, trying next model...`)
+        const remainingModels = fallbackModels.length - i - 1
+        console.warn(`[OpenRouter] 🔴 Rate limit on ${attemptModel}. ${remainingModels} backup(s) remaining...`)
         continue
       }
       // For other errors, rethrow
@@ -1190,6 +1225,7 @@ async function callOpenRouterWithFallback(
   }
 
   // If we exhaust all models
+  console.error('[OpenRouter] ❌ All models unavailable. Please try again later or add credits to your account.')
   throw new Error('All OpenRouter models are rate limited. Please try again later or add credits to your account.')
 }
 
@@ -1310,7 +1346,7 @@ async function testAPIConnection(provider: string, apiKey: string, model?: strin
           'X-OpenRouter-Title': 'Applied AI Assistant',
         },
         body: JSON.stringify({
-          model: model || 'openrouter/free',
+          model: model || 'arcee-ai/trinity-large-preview:free',
           messages: [{ role: 'user', content: testPrompt }],
           max_tokens: 50,
         }),
@@ -1471,7 +1507,14 @@ Dates: "Jan 2020". YOE: number. JSON only.`
         {
           const result = await callOpenRouterWithFallback(apiKey, prompt, model || 'arcee-ai/trinity-large-preview:free')
           content = result.content
-          console.log(`[CV Parser] Using model: ${result.modelUsed}`)
+
+          // Show which model was used and if fallback occurred
+          if (result.fallbackUsed) {
+            console.warn(`[CV Parser] ⚠️ Using backup model: ${result.modelUsed}`)
+            console.warn(`[CV Parser] 💡 Tip: Primary model is rate-limited. Consider adding credits to your OpenRouter account for better performance.`)
+          } else {
+            console.log(`[CV Parser] ✅ Using primary model: ${result.modelUsed}`)
+          }
         }
         break
       default:
@@ -1479,7 +1522,9 @@ Dates: "Jan 2020". YOE: number. JSON only.`
     }
 
     if (!content) {
-      console.error('[CV Parsing] No content received')
+      console.error('[CV Parsing] No content received from model')
+      console.error('[CV Parsing] Provider:', provider, '| Model:', model || 'default')
+      console.error('[CV Parsing] This usually indicates rate limiting or API error. Try a different model.')
       return null
     }
 
