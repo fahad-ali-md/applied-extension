@@ -1,0 +1,42 @@
+/* Navigation Styles */
+.popup-nav {
+  display: flex;
+  background: rgba(15, 23, 42, 0.9);
+  border-top: 1px solid rgba(100, 103, 242, 0.1);
+  padding: 0.5rem;
+  gap: 0.25rem;
+}
+
+.popup-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: #64748b;
+}
+
+.popup-nav-item:hover {
+  background: rgba(100, 103, 242, 0.1);
+  color: #94a3b8;
+}
+
+.popup-nav-item.popup-nav-active {
+  background: rgba(100, 103, 242, 0.15);
+  color: #6467f2;
+}
+
+.popup-nav-item .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.popup-nav-item span:last-child {
+  font-size: 0.7rem;
+  font-weight: 500;
+}

@@ -1,0 +1,8 @@
+{
+  "name": "applied-extension",
+  "version": "1.0.0",
+  "description": "AI-powered CV/Resume management Chrome extension",
+  "skillType": "project",
+  "categories": ["chrome-extension", "react", "typescript", "vite"],
+  "tags": ["cv", "resume", "pdf", "ai", "job-search"]
+}

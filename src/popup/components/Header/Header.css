@@ -1,0 +1,147 @@
+/* Header Styles */
+.popup-header {
+  padding: 1rem;
+  border-bottom: 1px solid rgba(100, 103, 242, 0.1);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.9) 100%);
+}
+
+.popup-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.popup-logo-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.popup-logo-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #6467f2 0%, #8b5cf6 100%);
+  border-radius: 8px;
+}
+
+.popup-logo-icon .material-symbols-outlined {
+  color: white;
+  font-size: 20px;
+}
+
+.popup-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #f1f5f9;
+  margin: 0;
+}
+
+.popup-info-btn {
+  background: transparent;
+  border: none;
+  padding: 0.5rem;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.2s;
+  color: #94a3b8;
+}
+
+.popup-info-btn:hover {
+  background: rgba(100, 103, 242, 0.1);
+  color: #6467f2;
+}
+
+.popup-subtitle {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin: 0 0 1rem 0;
+}
+
+.popup-badges {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.popup-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.popup-badge .material-symbols-outlined {
+  font-size: 14px;
+}
+
+.popup-badge-green {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.popup-badge-indigo {
+  background: rgba(100, 103, 242, 0.15);
+  color: #6467f2;
+  border: 1px solid rgba(100, 103, 242, 0.3);
+}
+
+.popup-badge-warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+/* Provider Selector */
+.popup-provider-selector {
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.popup-provider-label {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.popup-provider-dropdown {
+  flex: 1;
+  padding: 0.4rem 0.75rem;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(100, 103, 242, 0.3);
+  border-radius: 6px;
+  color: #f1f5f9;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  outline: none;
+}
+
+.popup-provider-dropdown:hover {
+  background: rgba(30, 41, 59, 0.8);
+  border-color: rgba(100, 103, 242, 0.5);
+}
+
+.popup-provider-dropdown:focus {
+  border-color: #6467f2;
+  box-shadow: 0 0 0 2px rgba(100, 103, 242, 0.1);
+}
+
+.popup-provider-dropdown option {
+  background: #1e293b;
+  color: #f1f5f9;
+  padding: 0.5rem;
+}
+

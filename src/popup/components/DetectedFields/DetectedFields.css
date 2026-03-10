@@ -1,0 +1,166 @@
+/* Fields Section Styles */
+.popup-fields-section {
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(100, 103, 242, 0.1);
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.popup-fields-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.popup-fields-header h4 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.popup-fields-count {
+  font-size: 0.75rem;
+  color: #64748b;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 0.25rem 0.5rem;
+  border-radius: 12px;
+}
+
+.popup-fields-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.popup-field-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(100, 103, 242, 0.1);
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.popup-field-item:hover {
+  background: rgba(15, 23, 42, 0.8);
+  border-color: rgba(100, 103, 242, 0.2);
+}
+
+.popup-field-placeholder {
+  opacity: 0.5;
+}
+
+.popup-field-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.popup-field-left .material-symbols-outlined {
+  font-size: 18px;
+  color: #6467f2;
+}
+
+.popup-field-left span:not(.material-symbols-outlined) {
+  font-size: 0.85rem;
+  color: #cbd5e1;
+  font-weight: 500;
+}
+
+.popup-field-check {
+  color: #10b981;
+  font-size: 20px;
+}
+
+.popup-field-check-empty {
+  color: #475569;
+  font-size: 20px;
+}
+
+.popup-fields-more {
+  margin: 0.75rem 0 0 0;
+  text-align: center;
+  font-size: 0.75rem;
+  color: #64748b;
+  font-style: italic;
+}
+
+.popup-refresh-btn {
+  width: 100%;
+  margin-top: 0.75rem;
+  background: transparent;
+  border: 1px solid rgba(100, 103, 242, 0.2);
+  border-radius: 8px;
+  padding: 0.5rem;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: all 0.2s;
+}
+
+.popup-refresh-btn:hover {
+  background: rgba(100, 103, 242, 0.1);
+  border-color: rgba(100, 103, 242, 0.3);
+  color: #6467f2;
+}
+
+.popup-refresh-btn .material-symbols-outlined {
+  font-size: 16px;
+}
+
+/* 🎯 Field Status Styles */
+.popup-field-filled {
+  background: rgba(16, 185, 129, 0.1) !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
+}
+
+.popup-field-filled .popup-field-left .material-symbols-outlined {
+  color: #10b981;
+}
+
+.popup-field-label-filled {
+  color: #10b981 !important;
+}
+
+.popup-field-filled .popup-field-check {
+  color: #10b981;
+}
+
+.popup-field-failed {
+  background: rgba(239, 68, 68, 0.1) !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+.popup-field-failed .popup-field-left .material-symbols-outlined {
+  color: #ef4444;
+}
+
+.popup-field-failed .popup-field-left span:not(.material-symbols-outlined) {
+  color: #ef4444 !important;
+}
+
+.popup-field-failed .popup-field-check {
+  color: #ef4444;
+}
+
+/* 🎯 Pending state (default unchecked) */
+.popup-field-item {
+  /* Default styles apply for pending state */
+}
+
+.popup-field-item .popup-field-left .material-symbols-outlined {
+  color: #6467f2;
+}
+
+.popup-field-item .popup-field-left span:not(.material-symbols-outlined) {
+  color: #cbd5e1;
+}
