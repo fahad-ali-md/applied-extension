@@ -1246,18 +1246,10 @@ async function fetchAvailableModels(provider: string, apiKey: string): Promise<a
         .map((m: any) => ({ id: m.id, name: m.id }))
         .sort((a: any, b: any) => a.id.localeCompare(b.id))
     } else if (provider === 'openrouter') {
-      // Fetch models from OpenRouter API
-      const response = await fetch('https://openrouter.ai/api/v1/models', {
-        headers: { 'Authorization': `Bearer ${apiKey}` },
-      })
-      if (!response.ok) throw new Error(`Failed to fetch OpenRouter models: ${response.status}`)
-      const data = await response.json()
-
-      // Filter for free models and format them
-      return data.data
-        .filter((m: any) => m.pricing?.prompt === '0' && m.pricing?.completion === '0') // Only free models
-        .map((m: any) => ({ id: m.id, name: m.name || m.id }))
-        .sort((a: any, b: any) => a.id.localeCompare(b.id))
+      // 🎯 Use DEFAULT_MODELS for OpenRouter to ensure correct priority order
+      // The list is ordered by reliability (arcee-ai/trinity-large-preview:free is the only working model as of 2026-03-11)
+      // Fetching from API would return models in random order, causing wrong model selection
+      return DEFAULT_MODELS.openrouter
     }
     // For other providers, use default lists
     return DEFAULT_MODELS[provider as keyof typeof DEFAULT_MODELS] || []
@@ -1505,7 +1497,17 @@ Dates: "Jan 2020". YOE: number. JSON only.`
         break
       case 'openrouter':
         {
-          const result = await callOpenRouterWithFallback(apiKey, prompt, model || 'arcee-ai/trinity-large-preview:free')
+          // 🎯 Auto-replace broken models with working ones (as of 2026-03-11)
+          const modelMapping: Record<string, string> = {
+            'openrouter/free': 'arcee-ai/trinity-large-preview:free', // Only working free model
+          }
+          const safeModel = modelMapping[model] || model || 'arcee-ai/trinity-large-preview:free'
+
+          if (model !== safeModel) {
+            console.warn(`[CV Parser] 🔄 Auto-replaced broken model "${model}" with "${safeModel}"`)
+          }
+
+          const result = await callOpenRouterWithFallback(apiKey, prompt, safeModel)
           content = result.content
 
           // Show which model was used and if fallback occurred
