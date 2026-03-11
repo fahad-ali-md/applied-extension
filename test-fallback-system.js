@@ -4,7 +4,7 @@
  * Test the OpenRouter fallback system with NVIDIA model
  */
 
-const API_KEY = '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'
+const API_KEY = 'YOUR_OPENROUTER_API_KEY_HERE'
 
 // Test CV
 const CV_TEXT = `MD. FAHAD ALI
