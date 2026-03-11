@@ -1537,9 +1537,9 @@ Dates: "Jan 2020". YOE: number. JSON only.`
           const modelMapping: Record<string, string> = {
             'openrouter/free': 'arcee-ai/trinity-large-preview:free', // Only working free model
           }
-          const safeModel = modelMapping[model] || model || 'arcee-ai/trinity-large-preview:free'
+          const safeModel = (model && modelMapping[model]) || model || 'arcee-ai/trinity-large-preview:free'
 
-          if (model !== safeModel) {
+          if (model && model !== safeModel) {
             console.warn(`[CV Parser] 🔄 Auto-replaced broken model "${model}" with "${safeModel}"`)
           }
 
