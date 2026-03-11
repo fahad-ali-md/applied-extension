@@ -259,7 +259,7 @@ const AI_PROVIDERS: Record<string, AIProvider> = {
     name: 'OpenRouter',
     key: STORAGE_KEYS.API_KEY_OPENROUTER,
     baseUrl: 'https://openrouter.ai/api/v1',
-    defaultModel: 'arcee-ai/trinity-large-preview:free',
+    defaultModel: 'nvidia/nemotron-3-nano-30b-a3b:free', // 🚀 Fastest working model (584ms)
   },
 }
 
@@ -311,13 +311,13 @@ const DEFAULT_MODELS = {
     { id: 'glm-4-flash', name: 'GLM-4 Flash' },
   ],
   openrouter: [
-    { id: 'arcee-ai/trinity-large-preview:free', name: 'Arcee Trinity Large (Free)' }, // Most reliable
-    { id: 'google/gemma-3-4b-it:free', name: 'Google Gemma 3 4B (Free)' },
-    { id: 'liquid/lfm-2.5-1.2b-instruct:free', name: 'LFM 2.5 Instruct (Free)' },
-    { id: 'google/gemma-3-12b-it:free', name: 'Google Gemma 3 12B (Free)' },
-    { id: 'nvidia/nemotron-3-nano-30b-a3b:free', name: 'NVIDIA Nemotron 30B (Free)' },
-    { id: 'z-ai/glm-4.5-air:free', name: 'Z.ai GLM 4.5 Air (Free)' },
-    { id: 'openrouter/free', name: 'Free Models Router (Auto)' }, // Often rate-limited, put last
+    { id: 'nvidia/nemotron-3-nano-30b-a3b:free', name: 'NVIDIA Nemotron 30B (Free)' }, // 🚀 FASTEST (584ms)
+    { id: 'arcee-ai/trinity-large-preview:free', name: 'Arcee Trinity Large (Free)' }, // Reliable (1515ms)
+    { id: 'openrouter/free', name: 'Free Models Router (Auto)' }, // Working but slower (2822ms)
+    { id: 'google/gemma-3-4b-it:free', name: 'Google Gemma 3 4B (Free)' }, // Rate limited currently
+    { id: 'z-ai/glm-4.5-air:free', name: 'Z.ai GLM 4.5 Air (Free)' }, // Rate limited currently
+    // Removed: liquid/lfm-2.5-1.2b-instruct:free (poor quality response)
+    // Removed: google/gemma-3-12b-it:free (returns 400 error)
   ],
 }
 
@@ -780,8 +780,8 @@ async function getActiveProvider(): Promise<ProviderConfig | null> {
     openrouter: {
       key: result[STORAGE_KEYS.API_KEY_OPENROUTER] || '',
       provider: 'openrouter',
-      model: 'arcee-ai/trinity-large-preview:free',
-      modelName: 'Arcee Trinity Large (Free)'
+      model: 'nvidia/nemotron-3-nano-30b-a3b:free',
+      modelName: 'NVIDIA Nemotron 30B (Free)'
     },
   }
 
@@ -1118,12 +1118,18 @@ async function callOpenRouter(apiKey: string, prompt: string, model: string, too
  * Smart fallback function for OpenRouter API calls
  * Tries multiple models in priority order when rate limiting occurs
  *
- * TEST RESULTS (2026-03-11):
- * ✅ Working: arcee-ai/trinity-large-preview:free (1218ms)
- * 🔴 Rate Limited: All other models (429 errors)
+ * TEST RESULTS (2026-03-11 - Fresh Test):
+ * ✅ Working: nvidia/nemotron-3-nano-30b-a3b:free (584ms) 🚀 FASTEST
+ * ✅ Working: arcee-ai/trinity-large-preview:free (1515ms)
+ * ✅ Working: openrouter/free (2822ms)
+ * 🔴 Rate Limited: google/gemma-3-4b-it:free, z-ai/glm-4.5-air:free
+ * ❌ Poor Quality: liquid/lfm-2.5-1.2b-instruct:free
+ * ❌ Error 400: google/gemma-3-12b-it:free
  *
- * Fallback strategy: Always use arcee-ai/trinity-large-preview:free as primary
- * since it's the only model not currently rate-limited
+ * Fallback strategy: Use fastest working model (NVIDIA) as primary,
+ * then reliable models, with openrouter/free as last resort
+ *
+ * @returns { content, modelUsed, fallbackUsed } - Parsed content, which model succeeded, and if fallback was used
  */
 async function callOpenRouterWithFallback(
   apiKey: string,
@@ -1131,29 +1137,35 @@ async function callOpenRouterWithFallback(
   model?: string,
   tools?: any[]
 ): Promise<{ content: string | null; modelUsed: string; fallbackUsed: boolean }> {
-  // Define fallback models in priority order (most reliable first)
-  // Based on actual test results - only arcee-ai/trinity-large-preview:free is working
-  const fallbackModels = [
-    model || 'arcee-ai/trinity-large-preview:free', // PRIMARY: Only working model
-    'google/gemma-3-4b-it:free',                    // Backup (currently rate-limited)
-    'liquid/lfm-2.5-1.2b-instruct:free',           // Backup (currently rate-limited)
-    'google/gemma-3-12b-it:free',                   // Backup (currently rate-limited)
-    'nvidia/nemotron-3-nano-30b-a3b:free',         // Backup (currently rate-limited)
-    'z-ai/glm-4.5-air:free',                        // Backup (currently rate-limited)
-    'openrouter/free',                              // LAST RESORT (often rate-limited)
-  ]
+  // Build fallback models list - prioritize the requested model or known working model
+  // Avoid duplicates by filtering out the primary model from backup list
+  const primaryModel = model || 'nvidia/nemotron-3-nano-30b-a3b:free' // Fastest working model
+  const backupModels = [
+    'nvidia/nemotron-3-nano-30b-a3b:free',  // FASTEST working (584ms) 🚀
+    'arcee-ai/trinity-large-preview:free',  // Reliable working (1515ms)
+    'openrouter/free',                      // Working but slower (2822ms)
+    'google/gemma-3-4b-it:free',            // Rate limited currently
+    'z-ai/glm-4.5-air:free',                // Rate limited currently
+    // Removed: liquid/lfm-2.5-1.2b-instruct:free (poor quality)
+    // Removed: google/gemma-3-12b-it:free (returns 400 error)
+  ].filter(m => m !== primaryModel) // Remove primary to avoid duplicates
 
+  const fallbackModels = [primaryModel, ...backupModels]
   let fallbackUsed = false
+
+  console.log(`[OpenRouter] 🎯 Starting model rotation with ${fallbackModels.length} models available`)
+  console.log(`[OpenRouter] 📋 Model order: ${fallbackModels.map((m, i) => `${i + 1}. ${m}`).join(', ')}`)
 
   for (let i = 0; i < fallbackModels.length; i++) {
     const attemptModel = fallbackModels[i]
+    const isPrimary = i === 0
 
     try {
       // Show clear progress messages
-      if (i === 0) {
-        console.log(`[OpenRouter] 🚀 Starting with model: ${attemptModel}`)
+      if (isPrimary) {
+        console.log(`[OpenRouter] 🚀 Attempting PRIMARY model: ${attemptModel}`)
       } else {
-        console.log(`[OpenRouter] 🔄 Trying backup model ${i}/${fallbackModels.length - 1}: ${attemptModel}`)
+        console.log(`[OpenRouter] 🔄 Trying BACKUP model ${i}/${fallbackModels.length - 1}: ${attemptModel}`)
         if (!fallbackUsed) {
           console.warn('[OpenRouter] ⚠️ Using backup model due to rate limit on primary model')
           fallbackUsed = true
@@ -1184,48 +1196,72 @@ async function callOpenRouterWithFallback(
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
 
-        // If 429, try next model with clear message
+        // Handle 429 rate limit errors specifically
         if (response.status === 429) {
           const remainingModels = fallbackModels.length - i - 1
           if (remainingModels > 0) {
-            console.warn(`[OpenRouter] 🔴 Model ${attemptModel} rate limited (429). ${remainingModels} backup(s) remaining...`)
+            console.warn(`[OpenRouter] 🔴 Rate limited (429) on "${attemptModel}". ${remainingModels} backup(s) remaining...`)
           } else {
-            console.warn(`[OpenRouter] 🔴 Model ${attemptModel} rate limited (429). No more backups available.`)
+            console.error(`[OpenRouter] 🔴 Rate limited (429) on "${attemptModel}". No more backups available!`)
           }
-          continue
+          continue // Try next model
         }
 
-        // Other errors should be thrown
-        console.error('[OpenRouter] ❌ API Error:', { status: response.status, errorData })
+        // Handle 401 Unauthorized errors
+        if (response.status === 401) {
+          console.error('[OpenRouter] 🔑 Invalid API key. Please check your OpenRouter API key.')
+          throw new Error('Invalid OpenRouter API key. Please check your credentials.')
+        }
+
+        // Handle other API errors
         const errorMessage = errorData.error?.message || errorData.message || `OpenRouter API error: ${response.status}`
+        console.error(`[OpenRouter] ❌ API Error on "${attemptModel}":`, { status: response.status, error: errorMessage })
         throw new Error(errorMessage)
       }
 
       const data = await response.json()
       const content = data.choices[0]?.message?.content
 
-      // Success message
+      // Success message - distinguish between primary and fallback
       if (fallbackUsed) {
-        console.log(`[OpenRouter] ✅ Success with BACKUP model: ${attemptModel}`)
+        console.log(`[OpenRouter] ✅ Success with BACKUP model: "${attemptModel}"`)
       } else {
-        console.log(`[OpenRouter] ✅ Success with primary model: ${attemptModel}`)
+        console.log(`[OpenRouter] ✅ Success with primary model: "${attemptModel}"`)
       }
 
       return { content, modelUsed: attemptModel, fallbackUsed }
     } catch (error) {
-      // If it's a 429 error from the throw above, continue to next model
+      // Handle network errors or other exceptions
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        console.error(`[OpenRouter] 🌐 Network error trying "${attemptModel}":`, error)
+        const remainingModels = fallbackModels.length - i - 1
+        if (remainingModels > 0) {
+          console.warn(`[OpenRouter] 🔁 Retrying with next model (${remainingModels} remaining)...`)
+          continue
+        }
+      }
+
+      // If it's a 429 error from an Error throw, continue to next model
       if (error instanceof Error && error.message.includes('rate limit')) {
         const remainingModels = fallbackModels.length - i - 1
-        console.warn(`[OpenRouter] 🔴 Rate limit on ${attemptModel}. ${remainingModels} backup(s) remaining...`)
-        continue
+        if (remainingModels > 0) {
+          console.warn(`[OpenRouter] 🔴 Rate limit on "${attemptModel}". ${remainingModels} backup(s) remaining...`)
+          continue
+        }
       }
+
       // For other errors, rethrow
       throw error
     }
   }
 
-  // If we exhaust all models
-  console.error('[OpenRouter] ❌ All models unavailable. Please try again later or add credits to your account.')
+  // If we exhaust all models, provide clear guidance
+  console.error('[OpenRouter] ❌ All models unavailable or rate limited.')
+  console.error('[OpenRouter] 💡 Suggestions:')
+  console.error('   1. Wait a few minutes and try again')
+  console.error('   2. Add credits to your OpenRouter account for better performance')
+  console.error('   3. Try using a different AI provider (OpenAI, Gemini, etc.)')
+
   throw new Error('All OpenRouter models are rate limited. Please try again later or add credits to your account.')
 }
 
@@ -1338,7 +1374,7 @@ async function testAPIConnection(provider: string, apiKey: string, model?: strin
           'X-OpenRouter-Title': 'Applied AI Assistant',
         },
         body: JSON.stringify({
-          model: model || 'arcee-ai/trinity-large-preview:free',
+          model: model || 'nvidia/nemotron-3-nano-30b-a3b:free', // 🚀 Fastest working model
           messages: [{ role: 'user', content: testPrompt }],
           max_tokens: 50,
         }),
