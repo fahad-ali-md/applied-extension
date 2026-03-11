@@ -17,13 +17,17 @@ Thumbs.db
 *.log
 npm-debug.log*
 
-# Test files
+# Test files (may contain API keys - DO NOT TRACK)
 test-*.js
 verify-*.js
 comprehensive-*.js
+check-*.js
 model-research-report.json
 model-test-results.json
 test-result.json
+
+# Test scripts directory
+test_scripts/
 
 # Environment
 .env
