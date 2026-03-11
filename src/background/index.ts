@@ -311,12 +311,12 @@ const DEFAULT_MODELS = {
     { id: 'glm-4-flash', name: 'GLM-4 Flash' },
   ],
   openrouter: [
-    { id: 'nvidia/nemotron-3-nano-30b-a3b:free', name: 'NVIDIA Nemotron 30B (Free)' }, // 🚀 FASTEST (584ms)
-    { id: 'arcee-ai/trinity-large-preview:free', name: 'Arcee Trinity Large (Free)' }, // Reliable (1515ms)
-    { id: 'openrouter/free', name: 'Free Models Router (Auto)' }, // Working but slower (2822ms)
-    { id: 'google/gemma-3-4b-it:free', name: 'Google Gemma 3 4B (Free)' }, // Rate limited currently
-    { id: 'z-ai/glm-4.5-air:free', name: 'Z.ai GLM 4.5 Air (Free)' }, // Rate limited currently
-    // Removed: liquid/lfm-2.5-1.2b-instruct:free (poor quality response)
+    { id: 'nvidia/nemotron-3-nano-30b-a3b:free', name: 'NVIDIA Nemotron 30B (Free)' }, // 🚀 FASTEST (620ms)
+    { id: 'arcee-ai/trinity-large-preview:free', name: 'Arcee Trinity Large (Free)' }, // ✅ Excellent (1135ms)
+    { id: 'liquid/lfm-2.5-1.2b-instruct:free', name: 'LFM 2.5 Instruct (Free)' }, // ✅ Good quality (1161ms)
+    { id: 'openrouter/free', name: 'Free Models Router (Auto)' }, // ✅ Working (1971ms)
+    { id: 'z-ai/glm-4.5-air:free', name: 'Z.ai GLM 4.5 Air (Free)' }, // ✅ Working but slow (9838ms)
+    { id: 'google/gemma-3-4b-it:free', name: 'Google Gemma 3 4B (Free)' }, // 🔴 Rate limited
     // Removed: google/gemma-3-12b-it:free (returns 400 error)
   ],
 }
@@ -1118,16 +1118,17 @@ async function callOpenRouter(apiKey: string, prompt: string, model: string, too
  * Smart fallback function for OpenRouter API calls
  * Tries multiple models in priority order when rate limiting occurs
  *
- * TEST RESULTS (2026-03-11 - Fresh Test):
- * ✅ Working: nvidia/nemotron-3-nano-30b-a3b:free (584ms) 🚀 FASTEST
- * ✅ Working: arcee-ai/trinity-large-preview:free (1515ms)
- * ✅ Working: openrouter/free (2822ms)
- * 🔴 Rate Limited: google/gemma-3-4b-it:free, z-ai/glm-4.5-air:free
- * ❌ Poor Quality: liquid/lfm-2.5-1.2b-instruct:free
+ * TEST RESULTS (2026-03-11 - Agent Research):
+ * ✅ Working: nvidia/nemotron-3-nano-30b-a3b:free (620ms) 🚀 FASTEST
+ * ✅ Working: arcee-ai/trinity-large-preview:free (1135ms)
+ * ✅ Working: openrouter/free (1971ms)
+ * ✅ Working: z-ai/glm-4.5-air:free (9838ms) - Slow but quality
+ * ✅ Working: liquid/lfm-2.5-1.2b-instruct:free (1161ms) - Good quality
+ * 🔴 Rate Limited: google/gemma-3-4b-it:free
  * ❌ Error 400: google/gemma-3-12b-it:free
+ * ⚪ Not Found: microsoft/phi-3, qwen, llama, mistral, gryphe (free tiers discontinued)
  *
- * Fallback strategy: Use fastest working model (NVIDIA) as primary,
- * then reliable models, with openrouter/free as last resort
+ * Fallback strategy: Prioritize by speed, then quality
  *
  * @returns { content, modelUsed, fallbackUsed } - Parsed content, which model succeeded, and if fallback was used
  */
@@ -1141,12 +1142,12 @@ async function callOpenRouterWithFallback(
   // Avoid duplicates by filtering out the primary model from backup list
   const primaryModel = model || 'nvidia/nemotron-3-nano-30b-a3b:free' // Fastest working model
   const backupModels = [
-    'nvidia/nemotron-3-nano-30b-a3b:free',  // FASTEST working (584ms) 🚀
-    'arcee-ai/trinity-large-preview:free',  // Reliable working (1515ms)
-    'openrouter/free',                      // Working but slower (2822ms)
-    'google/gemma-3-4b-it:free',            // Rate limited currently
-    'z-ai/glm-4.5-air:free',                // Rate limited currently
-    // Removed: liquid/lfm-2.5-1.2b-instruct:free (poor quality)
+    'nvidia/nemotron-3-nano-30b-a3b:free',  // 🚀 FASTEST (620ms) - EXCELLENT quality
+    'arcee-ai/trinity-large-preview:free',  // ✅ Good (1135ms) - EXCELLENT quality
+    'liquid/lfm-2.5-1.2b-instruct:free',    // ✅ Good (1161ms) - GOOD quality
+    'openrouter/free',                      // ✅ Working (1971ms) - EXCELLENT quality
+    'z-ai/glm-4.5-air:free',                // ✅ Working (9838ms) - EXCELLENT quality (slow!)
+    'google/gemma-3-4b-it:free',            // 🔴 Rate limited currently
     // Removed: google/gemma-3-12b-it:free (returns 400 error)
   ].filter(m => m !== primaryModel) // Remove primary to avoid duplicates
 
@@ -1535,9 +1536,10 @@ Dates: "Jan 2020". YOE: number. JSON only.`
         {
           // 🎯 Auto-replace broken models with working ones (as of 2026-03-11)
           const modelMapping: Record<string, string> = {
-            'openrouter/free': 'arcee-ai/trinity-large-preview:free', // Only working free model
+            'google/gemma-3-12b-it:free': 'nvidia/nemotron-3-nano-30b-a3b:free', // Returns 400 error
+            // Note: liquid/lfm-2.5, z-ai/glm-4.5-air, and openrouter/free are all working
           }
-          const safeModel = (model && modelMapping[model]) || model || 'arcee-ai/trinity-large-preview:free'
+          const safeModel = (model && modelMapping[model]) || model || 'nvidia/nemotron-3-nano-30b-a3b:free' // 🚀 Fastest
 
           if (model && model !== safeModel) {
             console.warn(`[CV Parser] 🔄 Auto-replaced broken model "${model}" with "${safeModel}"`)
