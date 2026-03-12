@@ -1341,34 +1341,69 @@ const APIKeysView = ({ apiKeys, setApiKeys, settings, setSettings }: {
   } | null>(null)
   const [saveStatus, setSaveStatus] = useState('')
 
+  // 🎯 Token Tracking State
+  const [tokenHistory, setTokenHistory] = useState<any[]>([])
+  const [showTokenHistory, setShowTokenHistory] = useState(false)
+
+  // Load token history on mount
+  useEffect(() => {
+    const loadTokenHistory = async () => {
+      try {
+        const result = await chrome.storage.local.get('tokenHistory')
+        setTokenHistory(result.tokenHistory || [])
+      } catch (error) {
+        console.error('[Token History] Failed to load:', error)
+      }
+    }
+
+    loadTokenHistory()
+  }, [])
+
   // Fetch models when provider tab changes or API key changes
   useEffect(() => {
     const loadSavedModels = async () => {
-      // Load saved provider config
-      chrome.runtime.sendMessage({ action: 'getAvailableProviders' }, (response: {
-        success: boolean
-        providers?: Array<{ id: string; model: string; modelName: string }>
-      }) => {
-        if (response?.success && response.providers) {
-          const providerConfig = response.providers.find((p) => p.id === selectedProvider)
-          if (providerConfig) {
-            setSettings({
-              ...settings,
-              aiProvider: selectedProvider,
-              aiModel: providerConfig.model,
-              aiModelName: providerConfig.modelName
-            })
-            setAvailableModels([{
-              id: providerConfig.model,
-              name: providerConfig.modelName
-            }])
-          }
+      const apiKey = apiKeys[selectedProvider]
+      if (!apiKey) {
+        setAvailableModels([])
+        return
+      }
+
+      setIsLoadingModels(true)
+
+      try {
+        const response = await chrome.runtime.sendMessage({
+          action: 'fetchModels',
+          provider: selectedProvider,
+          apiKey
+        })
+
+        if (response.success && response.models) {
+          setAvailableModels(response.models)
+        } else {
+          // Defaults
+          const defaultModels = selectedProvider === 'openai' ? [
+            { id: 'gpt-4o', name: 'GPT-4o' },
+            { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+          ] : selectedProvider === 'gemini' ? [
+            { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+            { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+          ] : selectedProvider === 'openrouter' ? [
+            { id: 'openrouter/free', name: 'Free Models Router (Auto)' },
+            { id: 'nvidia/nemotron-3-nano-30b-a3b:free', name: 'NVIDIA Nemotron 30B (Free)' },
+          ] : [
+            { id: 'glm-5', name: 'GLM-5' },
+          ]
+          setAvailableModels(defaultModels)
         }
-      })
+      } catch (err) {
+        console.error('Failed to load models for provider:', err)
+      } finally {
+        setIsLoadingModels(false)
+      }
     }
 
     loadSavedModels()
-  }, [selectedProvider]) // Only re-run when provider tab changes
+  }, [selectedProvider, apiKeys[selectedProvider]])
 
   const handleSaveApiKey = async (provider: 'openai' | 'gemini' | 'zhipu' | 'openrouter') => {
     const apiKey = apiKeys[provider]
@@ -1853,6 +1888,160 @@ const APIKeysView = ({ apiKeys, setApiKeys, settings, setSettings }: {
               </>
             )}
           </div>
+        </section>
+
+        {/* 🎯 Token Tracking Section */}
+        <section className="glass-card section-card" style={{ marginTop: '20px' }}>
+          <div className="section-header" onClick={() => setShowTokenHistory(!showTokenHistory)} style={{ cursor: 'pointer' }}>
+            <Icon name="chart" className="section-icon" />
+            <h3>🎯 Token Usage Tracking</h3>
+            <span style={{ marginLeft: 'auto', fontSize: '0.875rem', color: 'var(--text-slate-400)' }}>
+              {showTokenHistory ? '▼' : '▶'}
+            </span>
+          </div>
+
+          {showTokenHistory && (
+            <div style={{ marginTop: '20px' }}>
+              {tokenHistory.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-slate-400)' }}>
+                  No CV parsing history yet. Upload a CV to see token usage!
+                </div>
+              ) : (
+                <>
+                  {/* Summary Stats */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '15px', marginBottom: '20px' }}>
+                    <div className="stat-card" style={{ background: 'var(--bg-dark-slate)', padding: '15px', borderRadius: '8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-slate-400)', marginBottom: '5px' }}>Total Parses</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--accent-primary)' }}>{tokenHistory.length}</div>
+                    </div>
+                    <div className="stat-card" style={{ background: 'var(--bg-dark-slate)', padding: '15px', borderRadius: '8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-slate-400)', marginBottom: '5px' }}>Total Tokens</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--accent-blue)' }}>
+                        {tokenHistory.reduce((sum, h) => sum + (h.totalTokens || 0), 0).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="stat-card" style={{ background: 'var(--bg-dark-slate)', padding: '15px', borderRadius: '8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-slate-400)', marginBottom: '5px' }}>Total Cost</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--accent-green)' }}>
+                        ${(tokenHistory.reduce((sum, h) => sum + (h.totalCost || 0), 0)).toFixed(6)}
+                      </div>
+                    </div>
+                    <div className="stat-card" style={{ background: 'var(--bg-dark-slate)', padding: '15px', borderRadius: '8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-slate-400)', marginBottom: '5px' }}>Avg Cost/CV</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--accent-yellow)' }}>
+                        ${(tokenHistory.length > 0 ? (tokenHistory.reduce((sum, h) => sum + (h.totalCost || 0), 0) / tokenHistory.length) : 0).toFixed(6)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Method Breakdown */}
+                  <div style={{ background: 'var(--bg-dark-slate)', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
+                    <h4 style={{ margin: '0 0 10px 0', fontSize: '0.875rem', color: 'var(--text-slate-300)' }}>Method Distribution</h4>
+                    <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                      {['browser', 'hybrid', 'ai-full'].map(method => {
+                        const count = tokenHistory.filter(h => h.method === method).length
+                        const percent = tokenHistory.length > 0 ? (count / tokenHistory.length * 100).toFixed(0) : 0
+                        const colors = {
+                          browser: 'var(--accent-green)',
+                          hybrid: 'var(--accent-blue)',
+                          'ai-full': 'var(--accent-yellow)'
+                        }
+                        return (
+                          <div key={method} style={{ flex: '1', minWidth: '120px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-slate-400)', marginBottom: '3px' }}>
+                              {method === 'browser' ? 'Browser (FREE)' : method === 'hybrid' ? 'Hybrid (⚡)' : 'Full AI'}
+                            </div>
+                            <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: colors[method as keyof typeof colors] }}>
+                              {count} <span style={{ fontSize: '0.875rem', fontWeight: 'normal' }}>({percent}%)</span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* History List */}
+                  <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                    <h4 style={{ margin: '0 0 10px 0', fontSize: '0.875rem', color: 'var(--text-slate-300)' }}>Recent Activity</h4>
+                    {tokenHistory.slice().reverse().slice(0, 20).map((entry) => {
+                      const date = new Date(entry.timestamp)
+                      const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                      const dateStr = date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+
+                      const methodColors = {
+                        browser: { bg: 'rgba(34, 197, 94, 0.1)', text: '#22c55e' },
+                        hybrid: { bg: 'rgba(59, 130, 246, 0.1)', text: '#3b82f6' },
+                        'ai-full': { bg: 'rgba(234, 179, 8, 0.1)', text: '#eab308' }
+                      }
+                      const mc = methodColors[entry.method as keyof typeof methodColors]
+
+                      return (
+                        <div
+                          key={entry.parseId}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '10px 12px',
+                            marginBottom: '8px',
+                            background: 'var(--bg-dark-slate)',
+                            borderRadius: '6px',
+                            borderLeft: `3px solid ${mc.text}`
+                          }}
+                        >
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                              <span style={{
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                background: mc.bg,
+                                color: mc.text,
+                                fontSize: '0.7rem',
+                                fontWeight: '600',
+                                textTransform: 'uppercase'
+                              }}>
+                                {entry.method === 'browser' ? 'FREE' : entry.method}
+                              </span>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-slate-400)' }}>
+                                {dateStr} at {timeStr}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-slate-500)' }}>
+                              {entry.totalTokens?.toLocaleString() || 0} tokens
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '0.875rem', fontWeight: 'bold', color: 'var(--accent-green)' }}>
+                              ${entry.totalCost?.toFixed(6) || '0.000000'}
+                            </div>
+                            {entry.tokenUsage && entry.tokenUsage.length > 0 && (
+                              <div style={{ fontSize: '0.65rem', color: 'var(--text-slate-500)' }}>
+                                {entry.tokenUsage.map((u: any) => u.method).join(', ')}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Clear History Button */}
+                  <button
+                    className="btn-outline"
+                    onClick={async () => {
+                      if (confirm('Clear all token history?')) {
+                        await chrome.storage.local.remove('tokenHistory')
+                        setTokenHistory([])
+                      }
+                    }}
+                    style={{ marginTop: '15px', width: '100%' }}
+                  >
+                    Clear History
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </section>
       </div>
     </>

@@ -28,6 +28,7 @@ test-result.json
 
 # Test scripts directory
 test_scripts/
+test/
 
 # Environment
 .env
@@ -36,3 +37,16 @@ test_scripts/
 # Temporary files
 *.tmp
 *.temp
+
+# Documentation & internal MD files (not for production tracking)
+documentation/
+SKILLS.md
+*.md
+!README.md
+!CHANGELOG.md
+
+# Debug/test scripts and personal files
+debug-*.js
+check-*.js
+*.sh
+*.pdf

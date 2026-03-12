@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { optimizedBatchMap, RawDetectedField } from '../../utils/optimizedFieldMapper'
 
 interface FieldProgress {
   fieldName: string
@@ -6,131 +7,146 @@ interface FieldProgress {
   status: 'filled' | 'failed' | 'pending'
 }
 
-interface DetectedField {
-  id: string
-  name: string
-  type: string
-  label: string
-  placeholder?: string
-  options?: string[]
-}
-
 export const useFormFiller = () => {
   const [isFilling, setIsFilling] = useState(false)
   const [status, setStatus] = useState('')
   const [fieldProgress, setFieldProgress] = useState<FieldProgress[]>([])
-  const [detectedFields, setDetectedFields] = useState<DetectedField[]>([])
+  const [detectedFields, setDetectedFields] = useState<RawDetectedField[]>([])
 
-  useEffect(() => {
-    // 🎯 Clear any previous progress when component mounts
-    setFieldProgress([])
-    setDetectedFields([]) // Also clear detected fields
-
-    // 🎯 Listen for progress updates from background script
-    const handleMessage = (message: any) => {
-      if (message.action === 'formFillProgressUpdate' && message.field) {
-        setFieldProgress(prev => {
-          const exists = prev.find(f => f.fieldName === message.field.fieldName)
-          if (exists) {
-            return prev.map(f =>
-              f.fieldName === message.field.fieldName
-                ? { ...f, status: message.field.status }
-                : f
-            )
-          }
-          return [...prev, {
-            fieldName: message.field.fieldName,
-            label: message.field.label,
-            status: message.field.status
-          }]
-        })
-      }
-    }
-
-    chrome.runtime.onMessage.addListener(handleMessage)
-    return () => chrome.runtime.onMessage.removeListener(handleMessage)
-  }, [])
-
-  const handleFillForm = async () => {
+  /**
+   * Step 1: Just detect fields (no AI, no fill yet)
+   */
+  const handleDetectFields = async () => {
     setIsFilling(true)
-    setStatus('🔍 Detecting fields...')
-    setFieldProgress([]) // Reset progress
+    setStatus('Scanning page fields...')
+    setDetectedFields([])
+    setFieldProgress([])
 
     try {
-      // Get the active tab
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-      if (!tab || !tab.id) {
-        throw new Error('No active tab found')
+      if (!tab.id) { setStatus('No active tab found'); return }
+
+      // Ping content script
+      try {
+        await chrome.tabs.sendMessage(tab.id, { action: 'ping' })
+      } catch {
+        setStatus('Please refresh the page to use this extension.')
+        return
       }
 
-      console.log('[useFormFiller] Target tab:', tab.url)
-      console.log('[useFormFiller] Tab ID:', tab.id)
+      const response = await chrome.tabs.sendMessage(tab.id, { action: 'detectFields' })
 
-      // Step 1: Extract raw fields from page (token-efficient)
-      setStatus('🔍 Scanning form fields...')
-      const extractResponse = await chrome.tabs.sendMessage(tab.id, {
-        action: 'extractFormFields'
-      })
+      if (response?.fields?.length > 0) {
+        setDetectedFields(response.fields)
+        setStatus(`Found ${response.fields.length} fields on this page ✓`)
+      } else {
+        setStatus('No fillable fields found on this page.')
+      }
+    } catch (error: any) {
+      if (error.message?.includes('Receiving end does not exist')) {
+        setStatus('Please refresh the page to use this extension.')
+      } else {
+        setStatus('Error scanning page: ' + String(error))
+      }
+    } finally {
+      setIsFilling(false)
+    }
+  }
 
-      if (!extractResponse?.success || !extractResponse.fields) {
-        throw new Error(extractResponse?.error || 'Failed to extract fields')
+  /**
+   * Step 2: Optimized fill — ONE AI call for ALL fields
+   */
+  const handleFillForm = async () => {
+    setIsFilling(true)
+    setStatus('Loading your CV data...')
+    setFieldProgress([])
+
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (!tab.id) { setStatus('No active tab found'); return }
+
+      // 1. Load CV from storage
+      const storageData = await chrome.storage.local.get(['parsedCV'])
+      const cvData = storageData.parsedCV
+      if (!cvData) {
+        setStatus('No CV data found. Please upload your CV in the Options page first.')
+        return
       }
 
-      console.log('[useFormFiller] Extracted fields:', extractResponse.totalFields)
-
-      console.log('[useFormFiller] Extracted fields all data:', extractResponse)
-      // Step 2: Show detected fields to user
-      setDetectedFields(extractResponse.fields)
-      setStatus(`✓ Found ${extractResponse.totalFields} fields. Mapping with AI...`)
-
-      // Step 3: Map fields with AI (smart analysis)
-      const mapResponse = await chrome.runtime.sendMessage({
-        action: 'mapFieldsWithAI',
-        rawFields: extractResponse.fields
-      })
-
-      if (!mapResponse?.success) {
-        throw new Error(mapResponse?.error || 'Failed to map fields with AI')
+      // 2. Detect fields if not already done
+      let fields = detectedFields
+      if (fields.length === 0) {
+        setStatus('Scanning fields...')
+        const response = await chrome.tabs.sendMessage(tab.id, { action: 'detectFields' })
+        if (!response?.fields?.length) {
+          setStatus('No fillable fields found on this page.')
+          return
+        }
+        fields = response.fields
+        setDetectedFields(fields)
       }
 
-      console.log('[useFormFiller] AI mapped fields:', mapResponse.mappedFields)
+      // Set all fields to pending in UI
+      setFieldProgress(fields.map(f => ({
+        fieldName: f.id || f.name,
+        label: f.placeholder || f.name || f.id,
+        status: 'pending'
+      })))
 
-      // Step 4: Create progress list from AI mappings
-      const progressList: FieldProgress[] = mapResponse.mappings.map((mapping: any) => ({
-        fieldName: mapping.fieldId,
-        label: mapping.detectedAs,
-        status: 'pending' as const
-      }))
+      // 3. Single AI call — gets mappings for ALL fields at once
+      setStatus(`Mapping ${fields.length} fields with AI (1 request)...`)
 
-      setFieldProgress(progressList)
-      setStatus(`Filling ${progressList.length} fields...`)
+      const getAIResponse = async (prompt: string) => {
+        const response = await chrome.runtime.sendMessage({ action: 'askAI', prompt })
+        return response?.data
+      }
 
-      // Step 5: Send fill request with AI mappings
+      const mappings = await optimizedBatchMap(fields, cvData, getAIResponse)
+
+      if (mappings.length === 0) {
+        setStatus('AI could not map any fields. Check your CV data.')
+        return
+      }
+
+      setStatus(`Filling ${mappings.length} fields...`)
+
+      // 4. Send fill command to content script
       const fillResponse = await chrome.tabs.sendMessage(tab.id, {
         action: 'fillFormWithMappings',
-        mappings: mapResponse.mappings
+        mappings: mappings.map(m => ({
+          fieldId: m.id,
+          fieldName: m.name,
+          detectedAs: m.id || m.name,
+          valueToFill: m.value
+        }))
       })
 
-      if (fillResponse?.success) {
-        setStatus(`✓ Successfully filled ${fillResponse.filledCount} fields!`)
+      // 5. Update progress UI
+      const successIds = new Set(fillResponse?.results?.success || [])
+      const failedIds = new Set(fillResponse?.results?.failed || [])
 
-        // 🎯 Auto-hide progress after 5 seconds (increased from 3)
-        setTimeout(() => {
-          setFieldProgress([])
-          setDetectedFields([])
-        }, 5000)
+      setFieldProgress(fields.map(f => {
+        const identifier = f.id || f.name
+        return {
+          fieldName: identifier,
+          label: f.placeholder || f.name || f.id,
+          status: successIds.has(identifier) ? 'filled'
+            : failedIds.has(identifier) ? 'failed'
+              : 'pending'
+        }
+      }))
+
+      const filled = fillResponse?.filledCount ?? mappings.length
+      const total = fields.length
+      setStatus(`✅ Filled ${filled} of ${total} fields`)
+
+    } catch (error: any) {
+      console.error('[useFormFiller]', error)
+      if (error.message?.includes('Receiving end does not exist')) {
+        setStatus('Please refresh the page to use this extension.')
       } else {
-        throw new Error(fillResponse?.error || 'Failed to fill form')
+        setStatus('Error: ' + String(error))
       }
-    } catch (error) {
-      console.error('[useFormFiller] Error:', error)
-      setStatus('Error: ' + String(error))
-
-      // Clear fields on error
-      setTimeout(() => {
-        setFieldProgress([])
-        setDetectedFields([])
-      }, 3000)
     } finally {
       setIsFilling(false)
     }
@@ -141,6 +157,7 @@ export const useFormFiller = () => {
     status,
     fieldProgress,
     detectedFields,
+    handleDetectFields,
     handleFillForm,
   }
 }

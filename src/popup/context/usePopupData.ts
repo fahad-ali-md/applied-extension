@@ -50,7 +50,7 @@ export const usePopupData = () => {
 
   const detectFields = async () => {
     try {
-      // Get the active tab FIRST before sending to background
+      // Get the active tab FIRST
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
 
       if (!tab || !tab.id) {
@@ -60,11 +60,17 @@ export const usePopupData = () => {
 
       console.log('[usePopupData] Detecting fields in tab:', tab.url)
 
-      chrome.runtime.sendMessage({ action: 'detectFields', tabId: tab.id }, (response) => {
-        if (response?.fields) {
-          setDetectedFields(response.fields)
-        }
-      })
+      try {
+        await chrome.tabs.sendMessage(tab.id, { action: 'ping' })
+      } catch (pingError) {
+        console.warn('Content script not ready for detectFields in usePopupData', pingError)
+        return
+      }
+
+      const response = await chrome.tabs.sendMessage(tab.id, { action: 'detectFields' })
+      if (response && response.fields) {
+        setDetectedFields(response.fields)
+      }
     } catch (error) {
       console.error('[usePopupData] Error detecting fields:', error)
     }

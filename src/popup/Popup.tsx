@@ -30,10 +30,14 @@ export const Popup = () => {
     handleProviderChange,
     openOptions,
     openDashboard,
+    detectedFields: initialDetectedFields,
   } = usePopupData()
 
   // 📝 Form filling logic (now includes detectedFields from AI!)
-  const { isFilling, status, fieldProgress, detectedFields, handleFillForm } = useFormFiller()
+  const { isFilling, status, fieldProgress, detectedFields: fillerDetectedFields, handleFillForm, handleDetectFields } = useFormFiller()
+
+  // Use fields from filler if available, otherwise fallback to initially detected fields
+  const detectedFields = fillerDetectedFields.length > 0 ? fillerDetectedFields : initialDetectedFields
 
   // 🔍 Test scan logic
   const { isScanning, testResult, viewMode, setViewMode, handleTestScan } = useTestScan()
@@ -71,7 +75,7 @@ export const Popup = () => {
             />
             <DetectedFields
               detectedFields={detectedFields}
-              onRefresh={detectFields}
+              onRefresh={handleDetectFields}
               fieldIcon={fieldIcon}
               fieldLabel={fieldLabel}
               isFilling={isFilling}

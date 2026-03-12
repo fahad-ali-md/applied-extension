@@ -1,0 +1,183 @@
+{
+  "personal": {
+    "name": "FAHAD ALI F",
+    "title": "Full Stack Developer",
+    "email": "fahad288ali@gmail.com",
+    "phone": "8801867758990",
+    "location": "Bangladesh"
+  },
+  "professional": {
+    "title": "Full Stack Developer",
+    "summary": "Full Stack Developer specializing in the JavaScript/TypeScript ecosystem, particularly Next.js, Node.js, Fastify, and Express.js....",
+    "yearsOfExperience": 2
+  },
+  "experience": [
+    {
+      "id": "exp_1",
+      "company": "SolveTech Solution",
+      "role": "Full Stack Developer",
+      "startDate": "09/2025",
+      "endDate": null,
+      "current": true,
+      "highlights": [
+        "Developed PropDNA.ai - AI-powered real estate analytics platform",
+        "Architected AI-powered slide generation system",
+        "Implemented Go High Level customizations for CRM workflows",
+        "Integrated RAG pipelines with PostgreSQL and PGVector"
+      ]
+    },
+    {
+      "id": "exp_2",
+      "company": "Pirhotech.com",
+      "role": "Full Stack Developer",
+      "startDate": "07/2023",
+      "endDate": "09/2025",
+      "current": false,
+      "highlights": [
+        "Developed SaaS and e-commerce applications (700+ concurrent users)",
+        "Built secure systems with Next.js, Node.js, PostgreSQL, Docker",
+        "Collaborated with Biddarthi for production-ready platforms"
+      ]
+    },
+    {
+      "id": "exp_3",
+      "company": "Devsonket",
+      "role": "Open Source Contributor",
+      "startDate": "03/2023",
+      "endDate": "05/2023",
+      "current": false,
+      "highlights": [
+        "Improved developer documentation for 500+ monthly users",
+        "Maintained Puppeteer.js Cheat Sheets (300+ developers helped)"
+      ]
+    }
+  ],
+  "education": [
+    {
+      "id": "edu_1",
+      "degree": "B.Sc. (Hons) in Computer Science & Engineering",
+      "school": "Green University of Bangladesh",
+      "field": "Computer Science",
+      "startDate": "01/2022",
+      "endDate": "02/2026"
+    },
+    {
+      "id": "edu_2",
+      "degree": "Higher Secondary Certificate",
+      "school": "Cantonment Public School & College",
+      "field": "Science",
+      "startDate": "01/2019",
+      "endDate": "01/2021"
+    }
+  ],
+  "skills": {
+    "technical": [
+      "JavaScript",
+      "TypeScript",
+      "React",
+      "Next.js",
+      "TailwindCSS",
+      "WebGL",
+      "Three.js",
+      "Node.js",
+      "Express.js",
+      "REST API",
+      "GraphQL",
+      "Socket.IO",
+      "LangChain",
+      "RAG",
+      "PGVector"
+    ],
+    "tools": [
+      "Docker",
+      "AWS",
+      "Vercel",
+      "Git",
+      "GitHub",
+      "Bash"
+    ],
+    "databases": [
+      "PostgreSQL",
+      "MongoDB",
+      "SQL"
+    ],
+    "soft": [
+      "Communication",
+      "Team Collaboration",
+      "Problem-solving"
+    ]
+  },
+  "projects": [
+    {
+      "id": "proj_1",
+      "name": "AI-based Educational Platform with Gamification",
+      "description": "Real-time chatbot with gamified badge system for students",
+      "technologies": [
+        "Next.js",
+        "Node.js",
+        "Socket.IO",
+        "Render"
+      ],
+      "url": "skill-street.onrender.com",
+      "date": "02/2025"
+    },
+    {
+      "id": "proj_2",
+      "name": "Turfslot.com",
+      "description": "Turf booking platform handling 100+ daily transactions",
+      "technologies": [
+        "Next.js",
+        "Express.js",
+        "Supabase",
+        "SSLCommerz"
+      ],
+      "url": "turfslot.com",
+      "date": "11/2024"
+    },
+    {
+      "id": "proj_3",
+      "name": "Biddarthi.org",
+      "description": "Course-selling platform serving 700+ active students",
+      "technologies": [
+        "Next.js",
+        "PostgreSQL",
+        "SSLCommerz",
+        "LaTeX"
+      ],
+      "url": "biddarthi.org",
+      "date": "08/2023"
+    },
+    {
+      "id": "proj_4",
+      "name": "Real-Time Chat App",
+      "description": "Real-time chat with typing indicators and online status",
+      "technologies": [
+        "Next.js",
+        "Express.js",
+        "Socket.IO"
+      ],
+      "date": "05/2022"
+    }
+  ],
+  "certifications": [
+    "NASA Space Apps Challenge - Certificate of Participation",
+    "Microsoft AgentX - Prompt Engineering and Chatbots",
+    "FreeCodeCamp - Frontend Development",
+    "Udemy - Backend Development"
+  ],
+  "languages": [
+    {
+      "name": "English",
+      "proficiency": "Fluent"
+    },
+    {
+      "name": "Bangla",
+      "proficiency": "Native"
+    }
+  ],
+  "metadata": {
+    "totalPages": 2,
+    "totalChars": 5366,
+    "extractedAt": "2026-03-11T11:03:31.449Z"
+  }
+}

@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { enhanceCVDataWithPhoneInfo } from '../utils/phoneParser'
 
 // ============================================
 // ZOD VALIDATION SCHEMAS
@@ -198,6 +197,11 @@ interface RoleTemplate {
 let lastParseRequestTime = 0
 const MIN_REQUEST_INTERVAL_MS = 3000  // Minimum 3 seconds between requests
 
+// 🎯 Browser parsing confidence threshold
+// ⚠️ INCREASED to 90% to ensure high-quality data before using browser parsing
+// Browser parsing is free but can be inaccurate - only use it when VERY confident
+const BROWSER_PARSING_CONFIDENCE_THRESHOLD = 90
+
 const STORAGE_KEYS = {
   CV_DATA: 'cv_data',
   PARSED_CV: 'parsedCV',
@@ -218,7 +222,7 @@ const CV_PARSING = {
     openai: 16384,
     gemini: 32768,  // Increased to handle larger CVs
     zhipu: 16384,
-    openrouter: 8192,  // Increased for CV parsing
+    openrouter: 32768,  // Increased for CV parsing and reasoning models
   },
   // Retry configuration
   MAX_RETRIES: 3,
@@ -328,41 +332,6 @@ const DEFAULT_MODELS = {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('[Background] Received message:', request.action)
 
-  // Form filling
-  if (request.action === 'fillForm') {
-    handleFillForm(request.tabId).then(sendResponse)
-    return true
-  }
-
-  // 🧠 AI Field Mapping (Dynamic field detection + AI analysis)
-  if (request.action === 'mapFieldsWithAI') {
-    const { rawFields } = request
-
-    // Get CV data
-    chrome.storage.local.get([STORAGE_KEYS.PARSED_CV, STORAGE_KEYS.CV_DATA]).then(async (result) => {
-      const cvData = result[STORAGE_KEYS.PARSED_CV] || result[STORAGE_KEYS.CV_DATA]
-
-      if (!cvData) {
-        sendResponse({ success: false, error: 'No CV data found' })
-        return
-      }
-
-      // Use AI to map fields
-      const mappings = await mapFieldsWithAI(rawFields, cvData)
-
-      sendResponse({
-        success: true,
-        mappings,
-        totalFields: rawFields.length,
-        mappedFields: mappings.length
-      })
-    }).catch(error => {
-      sendResponse({ success: false, error: error.message })
-    })
-
-    return true // Keep channel open for async
-  }
-
   // CV data storage
   if (request.action === 'saveCV') {
     chrome.storage.local.set({ [STORAGE_KEYS.CV_DATA]: request.data }).then(() => {
@@ -390,7 +359,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   // Settings retrieval
   if (request.action === 'getSettings') {
-    chrome.storage.local.get([STORAGE_KEYS.SETTINGS, STORAGE_KEYS.API_KEY_OPENAI, STORAGE_KEYS.API_KEY_GEMINI, STORAGE_KEYS.API_KEY_ZHIPU]).then(result => {
+    chrome.storage.local.get([STORAGE_KEYS.SETTINGS, STORAGE_KEYS.API_KEY_OPENAI, STORAGE_KEYS.API_KEY_GEMINI, STORAGE_KEYS.API_KEY_ZHIPU, STORAGE_KEYS.API_KEY_OPENROUTER]).then(result => {
       const settings = result[STORAGE_KEYS.SETTINGS] || {}
       sendResponse({
         settings: {
@@ -398,8 +367,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           apiKeyOpenAI: result[STORAGE_KEYS.API_KEY_OPENAI] || '',
           apiKeyGemini: result[STORAGE_KEYS.API_KEY_GEMINI] || '',
           apiKeyZhipu: result[STORAGE_KEYS.API_KEY_ZHIPU] || '',
+          apiKeyOpenRouter: result[STORAGE_KEYS.API_KEY_OPENROUTER] || '',
         },
-        hasApiKey: !!(result[STORAGE_KEYS.API_KEY_OPENAI] || result[STORAGE_KEYS.API_KEY_GEMINI] || result[STORAGE_KEYS.API_KEY_ZHIPU]),
+        hasApiKey: !!(result[STORAGE_KEYS.API_KEY_OPENAI] || result[STORAGE_KEYS.API_KEY_GEMINI] || result[STORAGE_KEYS.API_KEY_ZHIPU] || result[STORAGE_KEYS.API_KEY_OPENROUTER]),
       })
     })
     return true
@@ -526,20 +496,173 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true
   }
 
-  // Parse CV
+  // Parse CV - Smart: Browser first, AI fallback (or force AI)
   if (request.action === 'parseCV') {
-    const { cvText, provider, apiKey, model } = request
-    parseCVWithAI(cvText, provider, apiKey, model)
-      .then(parsedCV => {
-        if (parsedCV) {
-          chrome.storage.local.set({ [STORAGE_KEYS.PARSED_CV]: parsedCV }).then(() => {
-            sendResponse({ success: true, data: parsedCV })
+    const { cvText, provider, apiKey, model, forceAI = false } = request
+    const parseId = `smart_parse_${Date.now()}`
+
+    console.log(`[Smart CV Parser][${parseId}] Starting...`, {
+      cvLength: cvText.length,
+      forceAI,
+      provider
+    })
+
+    // 🎯 If user wants to force AI, skip browser parsing
+    if (forceAI) {
+      console.log(`[Smart CV Parser][${parseId}] 🤖 Forced AI mode - skipping browser parsing`)
+      parseCVWithAI(cvText, provider, apiKey, model)
+        .then(parsedCV => {
+          if (parsedCV) {
+            console.log(`[Smart CV Parser][${parseId}] ✅ AI parsing successful!`)
+            chrome.storage.local.set({ [STORAGE_KEYS.PARSED_CV]: parsedCV }).then(() => {
+              sendResponse({
+                success: true,
+                data: parsedCV,
+                meta: {
+                  method: 'ai',
+                  confidence: 95,
+                  cost: 0.0004,
+                  forced: true
+                }
+              })
+            })
+          } else {
+            sendResponse({
+              success: false,
+              error: 'AI parsing failed'
+            })
+          }
+        })
+        .catch(error => sendResponse({ success: false, error: error.message }))
+      return true
+    }
+
+    // 🎯 Step 1: Try browser parsing (FREE!)
+    console.log(`[Smart CV Parser][${parseId}] Step 1: Browser parsing (FREE!)`)
+    const browserResult = parseCVWithBrowser(cvText)
+
+    console.log(`[Smart CV Parser][${parseId}] Browser result:`, {
+      confidence: browserResult.confidence,
+      threshold: BROWSER_PARSING_CONFIDENCE_THRESHOLD,
+      fields: {
+        name: `${browserResult.personal.firstName || ''} ${browserResult.personal.lastName || ''}`.trim() || 'MISSING',
+        email: browserResult.personal.email || 'MISSING',
+        phone: browserResult.personal.phone || 'MISSING',
+        experience: browserResult.experience.length,
+        education: browserResult.education.length,
+        skills: browserResult.skills.technical.length
+      }
+    })
+
+    // 🎯 Step 2: Check if confidence is good enough
+    if (browserResult.confidence >= BROWSER_PARSING_CONFIDENCE_THRESHOLD) {
+      console.log(`[Smart CV Parser][${parseId}] ✅ Browser parsing successful! (${browserResult.confidence}% >= ${BROWSER_PARSING_CONFIDENCE_THRESHOLD}%)`)
+      console.log(`[Smart CV Parser][${parseId}] 💰 Cost: $0.00 (FREE!)`)
+
+      // Convert browser result to ParsedCV format
+      const parsedCV: ParsedCV = {
+        personal: {
+          firstName: browserResult.personal.firstName || '',
+          lastName: browserResult.personal.lastName || '',
+          email: browserResult.personal.email || '',
+          phone: browserResult.personal.phone || '',
+          gender: 'prefer_not_to_say',
+          linkedIn: browserResult.personal.linkedIn,
+          portfolio: browserResult.personal.portfolio
+        },
+        professional: {
+          currentTitle: 'Software Developer', // Default if not found
+          summary: `Extracted with ${browserResult.confidence}% confidence using browser-based parsing.`,
+          yearsOfExperience: browserResult.experience.length > 0 ? browserResult.experience.length : 0
+        },
+        skills: {
+          technical: browserResult.skills.technical,
+          soft: browserResult.skills.soft,
+          tools: browserResult.skills.tools,
+          languages: []
+        },
+        experience: browserResult.experience,
+        projects: browserResult.projects,
+        education: browserResult.education,
+        rawText: cvText,
+        parsedAt: Date.now()
+      }
+
+      // Save and return
+      chrome.storage.local.set({ [STORAGE_KEYS.PARSED_CV]: parsedCV }).then(() => {
+        sendResponse({
+          success: true,
+          data: parsedCV,
+          meta: {
+            method: 'browser',
+            confidence: browserResult.confidence,
+            cost: 0
+          }
+        })
+      }).catch(error => sendResponse({ success: false, error: error.message }))
+
+      return true
+    }
+
+    // 🎯 Step 3: Browser confidence too low - Try Hybrid Parser first!
+    console.log(`[Smart CV Parser][${parseId}] ⚠️ Browser confidence too low (${browserResult.confidence}% < ${BROWSER_PARSING_CONFIDENCE_THRESHOLD}%)`)
+    console.log(`[Smart CV Parser][${parseId}] 🤖 Step 3: Trying Hybrid Parser (Regex + Chunked AI)...`)
+
+    parseCVWithHybrid(cvText, provider, apiKey, model)
+      .then(hybridResult => {
+        if (hybridResult.data) {
+          console.log(`[Smart CV Parser][${parseId}] ✅ Hybrid parsing successful!`)
+          console.log(`[Smart CV Parser][${parseId}] 💰 Cost: $${hybridResult.totalCost.toFixed(6)} (${hybridResult.totalTokens} tokens)`)
+
+          chrome.storage.local.set({ [STORAGE_KEYS.PARSED_CV]: hybridResult.data }).then(() => {
+            sendResponse({
+              success: true,
+              data: hybridResult.data,
+              meta: {
+                method: 'hybrid',
+                confidence: 90,
+                cost: hybridResult.totalCost,
+                tokens: hybridResult.totalTokens,
+                breakdown: hybridResult.tokenUsage
+              }
+            })
           })
         } else {
-          sendResponse({ success: false, error: 'Failed to parse CV' })
+          // Hybrid failed - Fall back to full AI
+          console.log(`[Smart CV Parser][${parseId}] ⚠️ Hybrid parsing failed, falling back to Full AI...`)
+
+          return parseCVWithAI(cvText, provider, apiKey, model)
         }
       })
-      .catch(error => sendResponse({ success: false, error: error.message }))
+      .then(parsedCV => {
+        // This handles the full AI fallback
+        if (parsedCV) {
+          console.log(`[Smart CV Parser][${parseId}] ✅ Full AI parsing successful!`)
+          console.log(`[Smart CV Parser][${parseId}] 💰 Cost: ~$0.0004`)
+
+          chrome.storage.local.set({ [STORAGE_KEYS.PARSED_CV]: parsedCV }).then(() => {
+            sendResponse({
+              success: true,
+              data: parsedCV,
+              meta: {
+                method: 'ai-full',
+                confidence: 95,
+                cost: 0.0004
+              }
+            })
+          })
+        }
+        // If parsedCV is null, hybrid succeeded and we already sent response
+      })
+      .catch(error => {
+        console.error(`[Smart CV Parser][${parseId}] ❌ All parsing methods failed!`)
+        console.error(`[Smart CV Parser][${parseId}] Error:`, error.message)
+        sendResponse({
+          success: false,
+          error: 'Browser, Hybrid, and AI parsing all failed'
+        })
+      })
+
     return true
   }
 
@@ -579,18 +702,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true
   }
 
-  // Scan job description
-  if (request.action === 'scanJobDescription') {
-    scanJobDescription().then(sendResponse).catch(() => sendResponse({ success: false }))
-    return true
-  }
-
-  // Detect fields
-  if (request.action === 'detectFields') {
-    detectFormFields().then(sendResponse).catch(() => sendResponse({ success: false }))
-    return true
-  }
-
   // AI requests for smart form handling
   if (request.action === 'askAI') {
     getActiveProvider()
@@ -602,131 +713,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .catch(error => sendResponse({ success: false, error: error.message }))
     return true
   }
-
-  // 🎯 Form fill progress updates from content script
-  if (request.action === 'formFillProgress') {
-    // Forward to popup if it's open
-    chrome.runtime.sendMessage({
-      action: 'formFillProgressUpdate',
-      field: request.field
-    }).catch(() => {
-      // Popup might not be open, that's okay
-      console.log('[Background] Popup not open, progress not delivered')
-    })
-    return true
-  }
 })
-
-// ============================================
-// FORM FILLING
-// ============================================
-
-async function handleFillForm(tabId?: number): Promise<any> {
-  try {
-    const targetTabId = tabId || (await getActiveTabId())
-    if (!targetTabId) return { success: false, error: 'No active tab found' }
-
-    console.log("[handleFillForm] Target tab ID:", targetTabId)
-
-    // Get tab info to debug
-    const tab = await chrome.tabs.get(targetTabId)
-    console.log("[handleFillForm] Tab URL:", tab.url)
-    console.log("[handleFillForm] Tab status:", tab.status)
-
-    // Check if content script is loaded by sending a ping
-    let contentScriptLoaded = false
-    try {
-      await chrome.tabs.sendMessage(targetTabId, { action: 'ping' })
-      contentScriptLoaded = true
-      console.log("[handleFillForm] Content script is loaded")
-    } catch (pingError) {
-      console.log("[handleFillForm] Content script NOT loaded, attempting to inject...")
-      contentScriptLoaded = false
-    }
-
-    // Try to inject content script if not loaded
-    if (!contentScriptLoaded) {
-      try {
-        // Check if we can inject (not a special page)
-        if (tab.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
-          console.log("[handleFillForm] Injecting content script...")
-          // Use the built JavaScript file (Chrome can only inject .js files, not .ts)
-          await chrome.scripting.executeScript({
-            target: { tabId: targetTabId },
-            files: ['src/contentScript/index.ts.js']
-          })
-          // Wait a bit for the script to initialize
-          await new Promise(resolve => setTimeout(resolve, 500))
-          console.log("[handleFillForm] Content script injected successfully")
-        } else {
-          return {
-            success: false,
-            error: `Cannot fill forms on this page type. URL: ${tab.url}. Content scripts only work on http/https pages.`
-          }
-        }
-      } catch (injectError) {
-        console.error("[handleFillForm] Failed to inject content script:", injectError)
-        return {
-          success: false,
-          error: `Cannot inject content script. This might be a restricted page. URL: ${tab.url || 'unknown'}`
-        }
-      }
-    }
-    const result = await chrome.storage.local.get([STORAGE_KEYS.CV_DATA, STORAGE_KEYS.PARSED_CV])
-    const parsedCV: ParsedCV | undefined = result[STORAGE_KEYS.PARSED_CV]
-    const legacyCV: CVData | undefined = result[STORAGE_KEYS.CV_DATA]
-    const cvData = parsedCV || legacyCV
-
-    if (!cvData) return { success: false, error: 'No CV data found' }
-
-    let dataForContentScript: any
-    if (parsedCV) {
-      // 🎯 Intelligent Data Preparation - Enhance with phone parsing
-      const enhancedCV = enhanceCVDataWithPhoneInfo(parsedCV)
-
-      dataForContentScript = {
-        personal: {
-          ...enhancedCV.personal,
-          // ✨ Smart name splitting - if firstName is empty but lastName has full name, split it
-          firstName: enhancedCV.personal.firstName || (() => {
-            const fullName = enhancedCV.personal.lastName || ''
-            const parts = fullName.trim().split(' ')
-            return parts.length > 1 ? parts[0] : fullName
-          })(),
-          lastName: enhancedCV.personal.lastName || (() => {
-            const fullName = enhancedCV.personal.lastName || ''
-            const parts = fullName.trim().split(' ')
-            return parts.length > 1 ? parts.slice(1).join(' ') : ''
-          })(),
-          // ✨ Add gender field (not in original CV, but commonly needed in forms)
-          gender: enhancedCV.personal.gender || 'prefer_not_to_say', // Options: 'male', 'female', 'other', 'prefer_not_to_say'
-        },
-        professional: {
-          currentTitle: enhancedCV.professional.currentTitle,
-          summary: enhancedCV.professional.summary,
-          skills: enhancedCV.skills.technical,
-          experience: `${enhancedCV.professional.yearsOfExperience} years`
-        },
-        education: enhancedCV.education[0] || {},
-        coverLetter: await generateProfessionalCoverLetter(enhancedCV)
-      }
-    } else {
-      dataForContentScript = legacyCV
-    }
-
-    const fillResult = await chrome.tabs.sendMessage(targetTabId, {
-      action: 'fillForm',
-      data: dataForContentScript,
-    })
-
-    console.log("Fillform", fillResult)
-
-    return fillResult
-  } catch (error) {
-    console.error('[handleFillForm] Error:', error)
-    return { success: false, error: String(error) }
-  }
-}
 
 // ============================================
 // AI FUNCTIONS
@@ -738,7 +725,8 @@ async function getActiveProvider(): Promise<ProviderConfig | null> {
     STORAGE_KEYS.SETTINGS,
     STORAGE_KEYS.API_KEY_OPENAI,
     STORAGE_KEYS.API_KEY_GEMINI,
-    STORAGE_KEYS.API_KEY_ZHIPU
+    STORAGE_KEYS.API_KEY_ZHIPU,
+    STORAGE_KEYS.API_KEY_OPENROUTER
   ])
 
   const configs: Record<string, ProviderConfig> = result[STORAGE_KEYS.PROVIDER_CONFIGS] || {}
@@ -835,131 +823,6 @@ async function callAI(provider: ProviderConfig, prompt: string, tools?: any[]): 
     console.error('[callAI] Failed to parse AI response:', error)
     throw new Error('Invalid JSON response from AI')
   }
-}
-
-// Function to handle tool calling with multi-turn conversation
-async function callAIWithTools(
-  provider: ProviderConfig,
-  prompt: string,
-  tools: any[],
-  toolHandler: (toolName: string, args: any) => string,
-  maxTurns: number = 5
-): Promise<any> {
-  console.log('[callAIWithTools] Starting AI call with tools...')
-  console.log('[callAIWithTools] Provider:', provider.provider)
-  console.log('[callAIWithTools] Tools provided:', tools?.length || 0)
-
-  let messages: any[] = [
-    { role: 'system', content: 'You are a helpful assistant that returns valid JSON or calls tools when needed.' },
-    { role: 'user', content: prompt }
-  ]
-
-  for (let turn = 0; turn < maxTurns; turn++) {
-    console.log(`[callAIWithTools] Turn ${turn + 1}/${maxTurns} - Calling ${provider.provider} API...`)
-    const startTime = Date.now()
-
-    let response: any
-
-    try {
-      // Make API call based on provider
-      if (provider.provider === 'openai') {
-        response = await callOpenAIWithTools(provider.apiKey, messages, provider.model, tools)
-      } else if (provider.provider === 'gemini') {
-        response = await callGeminiWithTools(provider.apiKey, messages, provider.model, tools)
-      } else if (provider.provider === 'zhipu') {
-        response = await callZhipuWithTools(provider.apiKey, messages, provider.model, tools)
-      } else if (provider.provider === 'openrouter') {
-        response = await callOpenAIWithTools(provider.apiKey, messages, provider.model, tools)
-      } else {
-        throw new Error(`Unknown provider: ${provider.provider}`)
-      }
-    } catch (error: any) {
-      console.error(`[callAIWithTools] API call failed:`, error.message)
-      throw error
-    }
-
-    const elapsed = Date.now() - startTime
-    console.log(`[callAIWithTools] API response received in ${elapsed}ms`)
-
-    // Check if AI wants to call tools
-    if (response.toolCalls && response.toolCalls.length > 0) {
-      console.log(`[callAIWithTools] AI requested ${response.toolCalls.length} tool(s):`, response.toolCalls.map((tc: any) => tc.name))
-
-      // Execute tools and add results
-      for (const toolCall of response.toolCalls) {
-        console.log(`[callAIWithTools] Executing tool: ${toolCall.name} with args:`, toolCall.arguments)
-        const result = toolHandler(toolCall.name, toolCall.arguments)
-        console.log(`[callAIWithTools] Tool result:`, result.substring(0, 100))
-
-        messages.push({
-          role: 'tool',
-          content: result,
-          toolCallId: toolCall.id,
-          name: toolCall.name
-        })
-      }
-      // Continue conversation
-      console.log('[callAIWithTools] Continuing conversation with tool results...')
-    } else {
-      console.log('[callAIWithTools] No tool calls - returning final response')
-      // Final response - return content
-      return response.content
-    }
-  }
-
-  throw new Error('Max turns exceeded in tool calling')
-}
-
-// OpenAI with tools
-async function callOpenAIWithTools(apiKey: string, messages: any[], model: string, tools?: any[]): Promise<any> {
-  const response = await fetch(`${AI_PROVIDERS.openai.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: model,
-      messages: messages,
-      temperature: 0.1,
-      max_tokens: 2000,
-      ...(tools && tools.length > 0 ? { tools: tools, tool_choice: "auto" } : {})
-    }),
-  })
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}))
-    throw new Error(errorData.error?.message || `OpenAI API error: ${response.status}`)
-  }
-
-  const data = await response.json()
-  const msg = data.choices[0]?.message
-
-  if (msg?.tool_calls) {
-    return {
-      toolCalls: msg.tool_calls.map((tc: any) => ({
-        id: tc.id,
-        name: tc.function.name,
-        arguments: JSON.parse(tc.function.arguments)
-      }))
-    }
-  }
-
-  return { content: msg?.content }
-}
-
-// Gemini with tools (simplified)
-async function callGeminiWithTools(apiKey: string, messages: any[], model: string, tools?: any[]): Promise<any> {
-  // Gemini tool calling is complex, using simplified version
-  const prompt = messages.map((m: any) => m.content).join('\n')
-  return await callGemini(apiKey, prompt, model, tools).then(content => ({ content }))
-}
-
-// Zhipu with tools (simplified)
-async function callZhipuWithTools(apiKey: string, messages: any[], model: string, tools?: any[]): Promise<any> {
-  // Zhipu tool calling is complex, using simplified version
-  const prompt = messages.map((m: any) => m.content).join('\n')
-  return await callZhipu(apiKey, prompt, model, tools).then(content => ({ content }))
 }
 
 async function callOpenAI(apiKey: string, prompt: string, model: string, tools?: any[]): Promise<string | null> {
@@ -1397,7 +1260,12 @@ async function testAPIConnection(provider: string, apiKey: string, model?: strin
       }
 
       const data = await response.json()
-      content = data.choices?.[0]?.message?.content
+      const messageObj = data.choices?.[0]?.message
+
+      // Some formatting for OpenRouter specifically, handling reasoning models
+      if (messageObj) {
+        content = messageObj.content || messageObj.reasoning || (data.choices?.[0]?.finish_reason ? 'Model responded (checking max_tokens)' : null)
+      }
     }
 
     if (content) {
@@ -1414,39 +1282,77 @@ async function testAPIConnection(provider: string, apiKey: string, model?: strin
 // ============================================
 
 /**
- * Clean and fix malformed JSON from AI responses
- * Handles common issues like trailing commas, comments, unquoted keys, etc.
+ * Clean and fix malformed JSON from AI responses.
+ * Uses a character-by-character approach to correctly sanitize control characters
+ * only INSIDE string values (not in JSON structure).
  */
 function cleanMalformedJson(jsonString: string): string {
   let cleaned = jsonString
 
-  // Remove single-line comments (// ...)
-  cleaned = cleaned.replace(/\/\/.*$/gm, '')
-
-  // Remove multi-line comments (/* ... */)
-  cleaned = cleaned.replace(/\/\*[\s\S]*?\*\//g, '')
-
-  // Remove trailing commas (before } or ])
+  // Step 1: Remove trailing commas outside strings (before } or ])
   cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1')
 
-  // Fix unquoted property names by wrapping them in quotes
-  // This regex finds word characters followed by colon that aren't already quoted
-  cleaned = cleaned.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)/g, '$1"$2"$3')
-
-  // Fix single-quoted strings to double-quoted
-  cleaned = cleaned.replace(/'([^']*)'/g, '"$1"')
-
-  // Fix undefined or null values in objects
+  // Step 2: Fix undefined or null keyword values
   cleaned = cleaned.replace(/:\s*undefined/g, ': null')
   cleaned = cleaned.replace(/:\s*None/g, ': null')
 
-  // ⚠️ DISABLED: Control character removal - was breaking JSON!
-  // cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, '')
+  // Step 3: Sanitize literal control characters (newlines, tabs, etc.) INSIDE string values only.
+  // We walk char-by-char to track when we're inside a JSON string.
+  const result: string[] = []
+  let inString = false
+  let i = 0
 
-  // ⚠️ DISABLED: Aggressive comma fixing - was breaking JSON!
-  // cleaned = cleaned.replace(/"(\s+)"(?=[^"]+":)/g, '", "$1')
-  // cleaned = cleaned.replace(/\}\s+"(?=[{"])/g, '}, "')
-  // cleaned = cleaned.replace(/"(\s+)\{/g, '", $1{')
+  while (i < cleaned.length) {
+    const ch = cleaned[i]
+
+    if (inString) {
+      if (ch === '\\') {
+        // Escaped character - keep both chars as-is
+        result.push(ch)
+        i++
+        if (i < cleaned.length) {
+          result.push(cleaned[i])
+          i++
+        }
+        continue
+      } else if (ch === '"') {
+        // End of string
+        inString = false
+        result.push(ch)
+        i++
+        continue
+      } else {
+        // Inside string: replace control chars with a space
+        const code = ch.charCodeAt(0)
+        if (code < 0x20 || (code >= 0x7F && code <= 0x9F)) {
+          // Literal newline/tab/carriage return inside a string - replace with space
+          result.push(' ')
+          i++
+          continue
+        }
+        result.push(ch)
+        i++
+        continue
+      }
+    } else {
+      if (ch === '"') {
+        inString = true
+        result.push(ch)
+        i++
+        continue
+      }
+      result.push(ch)
+      i++
+    }
+  }
+
+  cleaned = result.join('')
+
+  // Step 4: Remove backslash-single-quote (not valid JSON escape)
+  cleaned = cleaned.replace(/\\'/g, "'")
+
+  // Step 5: Remove trailing commas again in case the above steps revealed more
+  cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1')
 
   return cleaned
 }
@@ -1489,6 +1395,624 @@ function cleanUrl(url: any): string {
   return ''
 }
 
+// ============================================
+// BROWSER-BASED CV PARSING (FREE!)
+// ============================================
+
+interface BrowserParsedResult {
+  personal: {
+    firstName?: string
+    lastName?: string
+    email?: string
+    phone?: string
+    linkedIn?: string
+    portfolio?: string
+  }
+  experience: Array<{
+    id: string
+    role: string
+    company: string
+    startDate: string
+    endDate?: string
+    current: boolean
+    highlights: string[]
+    skills: string[]
+  }>
+  education: Array<{
+    id: string
+    degree: string
+    school: string
+    field?: string
+    graduationYear?: string
+  }>
+  skills: {
+    technical: string[]
+    soft: string[]
+    tools: string[]
+  }
+  projects: Array<{
+    id: string
+    name: string
+    description: string
+    technologies: string[]
+    url?: string
+    highlights: string[]
+  }>
+  confidence: number  // 0-100
+  method: 'browser' | 'ai'
+}
+
+/**
+ * Parse CV using browser-based regex patterns (FREE!)
+ * Returns confidence score - if < 80%, use AI fallback
+ */
+export function parseCVWithBrowser(cvText: string): BrowserParsedResult {
+  const result: BrowserParsedResult = {
+    personal: {},
+    experience: [],
+    education: [],
+    skills: {
+      technical: [],
+      soft: [],
+      tools: []
+    },
+    projects: [],
+    confidence: 0,
+    method: 'browser'
+  }
+
+  let score = 0
+  const fieldsFound: string[] = []
+
+  // ========== 1. Extract Name (VERY STRICT to avoid false positives) ==========
+  const namePatterns = [
+    /^([A-Z][A-Z\s]{3,})$/m,  // ALL CAPS name at start
+    /^([A-Z][a-z]+\s+[A-Z][a-z]+)$/m,  // Title case name
+    /Name:\s*([A-Z][a-z]+\s+[A-Z][a-z]+)/i,
+  ]
+
+  for (const pattern of namePatterns) {
+    const match = cvText.match(pattern)
+    if (match && match[1].length >= 3 && match[1].length <= 50) {
+      // ⚠️ VALIDATION: Make sure it looks like a name (no numbers, special chars except spaces/hyphens)
+      const nameStr = match[1].trim()
+      if (!/[0-9@#$%^&*()_+=\[\]{}|\\:;<>,.?/~`]/.test(nameStr)) {
+        const nameParts = nameStr.split(/\s+/)
+        if (nameParts.length >= 2 && nameParts.length <= 4) {
+          result.personal.firstName = nameParts[0]
+          result.personal.lastName = nameParts.slice(1).join(' ')
+          score += 20
+          fieldsFound.push('name')
+          break
+        }
+      }
+    }
+  }
+
+  // ========== 2. Extract Email (STRICT validation) ==========
+  const emailMatch = cvText.match(/[\w.+-]+@[\w-]+\.[\w.-]{2,}/)
+  if (emailMatch) {
+    // ⚠️ VALIDATION: Must be a reasonable email format
+    const email = emailMatch[0]
+    if (email.length > 5 && email.length < 100 && email.includes('@') && email.includes('.')) {
+      // Exclude common false positives
+      if (!email.includes('example') && !email.includes('test') && !email.includes('noreply')) {
+        result.personal.email = email
+        score += 20
+        fieldsFound.push('email')
+      }
+    }
+  }
+
+  // ========== 3. Extract Phone ==========
+  const phonePatterns = [
+    /\+?[\d\s\-\(\)]{10,}/,
+    /Phone:\s*([\d\s\-\+]+)/i,
+    /Mobile:\s*([\d\s\-\+]+)/i,
+    /Tel:\s*([\d\s\-\+]+)/i
+  ]
+
+  for (const pattern of phonePatterns) {
+    const match = cvText.match(pattern)
+    if (match) {
+      result.personal.phone = (match[1] || match[0]).replace(/[\s\(\)]/g, '')
+      score += 10
+      fieldsFound.push('phone')
+      break
+    }
+  }
+
+  // ========== 4. Extract LinkedIn/Portfolio ==========
+  const linkedinMatch = cvText.match(/linkedin\.com\/in\/[\w\-]+/i)
+  if (linkedinMatch) {
+    result.personal.linkedIn = linkedinMatch[0]
+    score += 5
+    fieldsFound.push('linkedin')
+  }
+
+  const portfolioMatch = cvText.match(/(?:portfolio|github|gitlab)\.?\s*[:\-]?\s*([^\s\n]+)/i)
+  if (portfolioMatch) {
+    result.personal.portfolio = portfolioMatch[1]
+    score += 5
+    fieldsFound.push('portfolio')
+  }
+
+  // ========== 5. Extract Experience (Multiple section names) ==========
+  const expPatterns = [
+    /Experience\s*:?\s*(.+?)(?=Education|Skills|Technical|Certifications|Projects|$)/is,
+    /Work\s+History\s*:?\s*(.+?)(?=Education|Skills|Technical|Certifications|Projects|$)/is,
+    /Employment\s*:?\s*(.+?)(?=Education|Skills|Technical|Certifications|Projects|$)/is,
+    /Professional\s+Experience\s*:?\s*(.+?)(?=Education|Skills|Technical|Certifications|Projects|$)/is,
+    /Experience\s*\n(.+?)\n(?=\n*[A-Z][a-z]+.*?\n|Education|Skills|$)/is
+  ]
+
+  for (const pattern of expPatterns) {
+    const match = cvText.match(pattern)
+    if (match && match[1].trim().length > 20) {
+      const expText = match[1]
+      let expCount = 0
+
+      // Try multiple job patterns
+      const jobPatterns = [
+        // Company : Role (date - date)
+        /(.+?)\s*:\s*(.+?)\s*[\(\[]?(\d{2}\/\d{4}|\w+ \d{4}|Present|Current)/gi,
+        // Company | Role | date - date
+        /(.+?)\s*\|\s*(.+?)\s*\|\s*(\d{2}\/\d{4}|\w+ \d{4}|Present)/gi,
+        // Company - Role (date - date)
+        /(.+?)\s*-\s*(.+?)\s*[\(\[]?(\d{2}\/\d{4}|\w+ \d{4}|Present)/gi
+      ]
+
+      for (const jobPattern of jobPatterns) {
+        let jobMatch
+        while ((jobMatch = jobPattern.exec(expText)) !== null && expCount < 10) {
+          const company = jobMatch[1]?.trim() || ''
+          const role = jobMatch[2]?.trim() || ''
+
+          if (company.length > 2 && role.length > 2) {
+            result.experience.push({
+              id: `exp_${Date.now()}_${expCount}`,
+              company,
+              role,
+              startDate: jobMatch[3] || '',
+              endDate: '',
+              current: jobMatch[3]?.toLowerCase() === 'present' || jobMatch[3]?.toLowerCase() === 'current',
+              highlights: [],
+              skills: []
+            })
+            expCount++
+          }
+        }
+        if (expCount > 0) break
+      }
+
+      if (result.experience.length > 0) {
+        score += 25
+        fieldsFound.push('experience')
+      }
+      break
+    }
+  }
+
+  // ========== 6. Extract Education ==========
+  const eduPatterns = [
+    /Education\s*:?\s*(.+?)(?=Skills|Technical|Certifications|Experience|Projects|$)/is,
+    /Academic\s+Background\s*:?\s*(.+?)(?=Skills|Technical|Certifications|Experience|Projects|$)/is,
+    /Education\s*\n(.+?)\n(?=\n*[A-Z][a-z]+.*?\n|Skills|Experience|$)/is
+  ]
+
+  for (const pattern of eduPatterns) {
+    const match = cvText.match(pattern)
+    if (match && match[1].trim().length > 20) {
+      const eduText = match[1]
+      let eduCount = 0
+
+      // Try to split by common separators
+      const eduItems = eduText.split(/\n\n|\n(?=[A-Z])/).filter(e => e.trim().length > 10)
+
+      for (const edu of eduItems.slice(0, 5)) {
+        const cleanEdu = edu.replace(/^[\s\•\-\*]+/, '').trim()
+
+        // Try to extract: Degree - School (year) or School | Degree
+        const eduMatch = cleanEdu.match(/(.+?)\s*[,\-|]\s*(.+?)(?:\s*\(|\s*\[|\s*(\d{4}))?/)
+
+        if (eduMatch) {
+          result.education.push({
+            id: `edu_${Date.now()}_${eduCount}`,
+            degree: eduMatch[1]?.trim() || cleanEdu.substring(0, 50),
+            school: eduMatch[2]?.trim() || '',
+            graduationYear: eduMatch[3] || ''
+          })
+          eduCount++
+        }
+      }
+
+      if (result.education.length > 0) {
+        score += 10
+        fieldsFound.push('education')
+      }
+      break
+    }
+  }
+
+  // ========== 7. Extract Skills ==========
+  const skillsPatterns = [
+    /Skills\s*:?\s*(.+?)(?=\n\n|Experience|Education|Certifications|Projects|Languages|$)/is,
+    /Technical\s+Skills?\s*:?\s*(.+?)(?=\n\n|Experience|Education|Certifications|Projects|Languages|$)/is,
+    /Technical\s+Expertise\s*:?\s*(.+?)(?=\n\n|Experience|Education|Certifications|Projects|Languages|Cloud|$)/is,
+    /Skills\s*\n(.+?)\n(?=\n\n|Experience|Education|Projects|$)/is
+  ]
+
+  for (const pattern of skillsPatterns) {
+    const match = cvText.match(pattern)
+    if (match && match[1].trim().length > 5) {
+      const skillsText = match[1]
+
+      // Split by comma, colon, newline, or bullet
+      const skills = skillsText
+        .split(/[,:\n•\-\*]+/)
+        .map(s => s.trim())
+        .filter(s => s.length > 2 && s.length < 50 && !s.includes('http'))
+
+      if (skills.length > 0 && skills.length < 100) {
+        // Categorize skills
+        const techKeywords = ['javascript', 'python', 'java', 'react', 'node', 'angular', 'vue', 'typescript', 'sql', 'html', 'css', 'docker', 'aws', 'git', 'rest', 'graphql', 'mongodb', 'postgresql', 'mysql']
+        const softKeywords = ['communication', 'leadership', 'team', 'problem', 'management', 'agile', 'scrum']
+
+        result.skills.technical = skills.filter(s =>
+          techKeywords.some(k => s.toLowerCase().includes(k))
+        )
+        result.skills.soft = skills.filter(s =>
+          softKeywords.some(k => s.toLowerCase().includes(k))
+        )
+        result.skills.tools = skills.filter(s =>
+          !result.skills.technical.includes(s) && !result.skills.soft.includes(s)
+        ).slice(0, 20)
+
+        if (result.skills.technical.length > 0 || result.skills.tools.length > 0) {
+          score += 10
+          fieldsFound.push('skills')
+        }
+      }
+      break
+    }
+  }
+
+  // ========== FINAL QUALITY CHECK ==========
+  // ⚠️ CRITICAL: Reduce confidence if essential fields are missing or look wrong
+  let qualityPenalty = 0
+
+  // Must have name AND email for high confidence
+  if (!result.personal.firstName || !result.personal.lastName) {
+    qualityPenalty += 30  // Heavy penalty for missing name
+  }
+  if (!result.personal.email) {
+    qualityPenalty += 30  // Heavy penalty for missing email
+  }
+
+  // Must have at least some experience or education
+  if (result.experience.length === 0 && result.education.length === 0) {
+    qualityPenalty += 20
+  }
+
+  // Apply quality penalty
+  result.confidence = Math.max(0, Math.min(score - qualityPenalty, 100))
+
+  // ⚠️ EXTRA VALIDATION: If confidence is high, data must be complete
+  if (result.confidence >= BROWSER_PARSING_CONFIDENCE_THRESHOLD) {
+    // Must have these minimum requirements
+    if (!result.personal.firstName || !result.personal.lastName) {
+      console.warn('[Browser CV Parser] ❌ Missing name data - rejecting high confidence')
+      result.confidence = Math.max(0, result.confidence - 50)
+    }
+    if (!result.personal.email) {
+      console.warn('[Browser CV Parser] ❌ Missing email data - rejecting high confidence')
+      result.confidence = Math.max(0, result.confidence - 50)
+    }
+  }
+
+  console.log('[Browser CV Parser]', {
+    confidence: result.confidence,
+    fieldsFound,
+    qualityPenalty,
+    threshold: BROWSER_PARSING_CONFIDENCE_THRESHOLD,
+    willUseAI: result.confidence < BROWSER_PARSING_CONFIDENCE_THRESHOLD,
+    method: 'browser'
+  })
+
+  return result
+}
+
+// ============================================
+// HYBRID CV PARSER - Field-Specific Strategy
+// ============================================
+
+interface TokenUsage {
+  method: 'regex' | 'ai-chunk' | 'ai-full' | 'ai-cleanup'
+  field: string
+  tokens: number
+  cost: number
+}
+
+interface ParseResult {
+  data: ParsedCV | null
+  tokenUsage: TokenUsage[]
+  totalTokens: number
+  totalCost: number
+  method: 'browser' | 'hybrid' | 'ai-full'
+}
+
+/**
+ * 🎯 HYBRID PARSER: Regex (FREE) + Single AI Call (optimized prompt)
+ *
+ * Strategy:
+ * - Email, Phone: Regex (FREE!)
+ * - Everything else: Single AI call with optimized prompt
+ * - Save tokens by excluding email/phone from AI prompt
+ *
+ * Expected savings: 20-30% vs Full AI
+ */
+export async function parseCVWithHybrid(
+  cvText: string,
+  provider: string,
+  apiKey: string,
+  model?: string
+): Promise<ParseResult> {
+  const parseId = `hybrid_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
+  console.log(`[Hybrid Parser][${parseId}] 🎯 Starting hybrid parsing...`)
+
+  const tokenUsage: TokenUsage[] = []
+
+  // ============== STEP 1: REGEX EXTRACTION (FREE!) ==============
+  console.log(`[Hybrid Parser][${parseId}] ⚡ Step 1: Regex extraction (FREE!)`)
+
+  const extractedData: any = {
+    personal: {
+      email: null as string | null,
+      phone: null as string | null,
+      firstName: '',
+      lastName: ''
+    },
+    professional: {
+      currentTitle: '',
+      summary: '',
+      yearsOfExperience: 0
+    },
+    skills: {
+      technical: [],
+      soft: [],
+      tools: [],
+      languages: []
+    },
+    experience: [],
+    projects: [],
+    education: []
+  }
+
+  // Email
+  const emailMatch = cvText.match(/[\w.+-]+@[\w-]+\.[\w.-]{2,}/)
+  if (emailMatch) {
+    extractedData.personal.email = emailMatch[0]
+    console.log(`[Hybrid Parser][${parseId}] ✓ Email: ${emailMatch[0]}`)
+  }
+
+  // Phone
+  const phoneMatch = cvText.match(/\+?[\d\s\-()]{10,}/)
+  if (phoneMatch) {
+    extractedData.personal.phone = phoneMatch[0].replace(/[\s\(\)]/g, '')
+    console.log(`[Hybrid Parser][${parseId}] ✓ Phone: ${extractedData.personal.phone}`)
+  }
+
+  tokenUsage.push({
+    method: 'regex',
+    field: 'email,phone',
+    tokens: 0,
+    cost: 0
+  })
+
+  // ============== STEP 2: SINGLE AI CALL (Optimized prompt) ==============
+  console.log(`[Hybrid Parser][${parseId}] 🤖 Step 2: Single AI call (excluding email/phone)...`)
+
+  // Remove email and phone from CV text to save tokens
+  let cleanedCVText = cvText
+  if (extractedData.personal.email) {
+    cleanedCVText = cleanedCVText.replace(extractedData.personal.email, '[EMAIL]')
+  }
+  if (extractedData.personal.phone) {
+    cleanedCVText = cleanedCVText.replace(new RegExp(extractedData.personal.phone.replace(/[+\-\(\)\s]/g, '\\$&'), 'g'), '[PHONE]')
+  }
+
+  const prompt = `Extract to JSON (email & phone already extracted):
+
+CV:
+${cleanedCVText}
+
+{
+  "personal": {"f":"","l":""},
+  "pro": {"title":"","sum":"","yoe":0},
+  "skills": {"tech":[],"soft":[],"tools":[]},
+  "exp": [{"id":"","r":"","c":"COMPANY_NAME","s":"","e":"","current":false,"high":[],"sk":[]}],
+  "proj": [{"id":"","n":"","d":"","tech":[],"url":"","high":[]}],
+  "edu": [{"id":"","deg":"","sch":"SCHOOL_NAME","f":"","y":""}]
+}
+
+IMPORTANT:
+- "c" = company name (extract actual company, never leave empty)
+- "sch" = school name (extract actual school, never leave empty)
+- Dates: "Jan 2020". YOE: number. JSON only.
+- Ensure all string values are properly escaped (especially double quotes inside strings).
+- Never include markdown.`
+
+  try {
+    let content: string | null = null
+
+    switch (provider) {
+      case 'openai':
+        content = await callOpenAI(apiKey, prompt, model || 'gpt-4o-mini')
+        break
+      case 'gemini':
+        content = await callGemini(apiKey, prompt, model || 'gemini-2.5-flash')
+        break
+      case 'zhipu':
+        content = await callZhipu(apiKey, prompt, model || 'glm-4')
+        break
+      case 'openrouter':
+        const result = await callOpenRouterWithFallback(apiKey, prompt, model || 'nvidia/nemotron-3-nano-30b-a3b:free')
+        content = result.content
+        break
+      default:
+        throw new Error('Unknown provider')
+    }
+
+    if (!content) {
+      throw new Error('No content received from AI')
+    }
+
+    // Extract JSON
+    let jsonMatch: RegExpMatchArray | null = null
+    for (const pattern of CV_PARSING.JSON_PATTERNS) {
+      jsonMatch = content.match(pattern)
+      if (jsonMatch) break
+    }
+
+    if (!jsonMatch) {
+      throw new Error('No JSON found in AI response')
+    }
+
+    let jsonString = jsonMatch[1] || jsonMatch[0]
+    jsonString = cleanMalformedJson(jsonString)
+    const parsed = JSON.parse(jsonString)
+
+    // Map abbreviated fields and merge with regex-extracted data
+    const mappedData: any = {
+      personal: {
+        firstName: parsed.personal?.f || '',
+        lastName: parsed.personal?.l || '',
+        email: extractedData.personal.email || '',
+        phone: extractedData.personal.phone || '',
+        gender: 'prefer_not_to_say',
+        linkedIn: parsed.personal?.linkedIn || '',
+        portfolio: parsed.personal?.portfolio || ''
+      },
+      professional: {
+        currentTitle: parsed.pro?.title || '',
+        summary: parsed.pro?.sum || '',
+        yearsOfExperience: parsed.pro?.yoe || 0
+      },
+      skills: {
+        technical: parsed.skills?.tech || [],
+        soft: parsed.skills?.soft || [],
+        tools: parsed.skills?.tools || [],
+        languages: parsed.skills?.languages || []
+      },
+      experience: (Array.isArray(parsed.exp) ? parsed.exp : [])
+        .filter((exp: any) => exp.c && exp.c.trim().length > 0) // Remove entries with empty company
+        .map((exp: any) => ({
+          id: exp.id || `exp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          role: exp.r || '',
+          company: exp.c || '',
+          startDate: exp.s || '',
+          endDate: exp.e || undefined,
+          current: exp.current || false,
+          highlights: Array.isArray(exp.high) ? exp.high : [],
+          skills: Array.isArray(exp.sk) ? exp.sk : []
+        })),
+      projects: (Array.isArray(parsed.proj) ? parsed.proj : []).map((proj: any) => ({
+        id: proj.id || `proj_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        name: proj.n || '',
+        description: proj.d || '',
+        technologies: Array.isArray(proj.tech) ? proj.tech : [],
+        url: proj.url || undefined,
+        highlights: Array.isArray(proj.high) ? proj.high : []
+      })),
+      education: (Array.isArray(parsed.edu) ? parsed.edu : [])
+        .filter((edu: any) => edu.sch && edu.sch.trim().length > 0) // Remove entries with empty school
+        .map((edu: any) => ({
+          id: edu.id || `edu_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          degree: edu.deg || '',
+          school: edu.sch || '',
+          field: edu.f || undefined,
+          graduationYear: edu.y || undefined
+        }))
+    }
+
+    // Estimate tokens (conservative estimate)
+    const inputTokens = Math.ceil(cleanedCVText.length / 4)
+    const outputTokens = 800
+    const totalTokens = inputTokens + outputTokens
+    const totalCost = totalTokens * 0.15 / 1000000
+
+    tokenUsage.push({
+      method: 'ai-chunk',
+      field: 'all-fields',
+      tokens: totalTokens,
+      cost: totalCost
+    })
+
+    // Validate
+    const validatedData = ParsedCVSchema.parse({
+      ...mappedData,
+      rawText: cvText,
+      parsedAt: Date.now()
+    })
+
+    console.log(`[Hybrid Parser][${parseId}] ✅ Success! Tokens: ${totalTokens}, Cost: $${totalCost.toFixed(6)}`)
+
+    // Save token usage
+    saveTokenUsage(parseId, 'hybrid', tokenUsage, totalTokens, totalCost)
+
+    return {
+      data: validatedData,
+      tokenUsage,
+      totalTokens,
+      totalCost,
+      method: 'hybrid'
+    }
+  } catch (error) {
+    console.error(`[Hybrid Parser][${parseId}] ❌ Failed:`, error)
+    return {
+      data: null,
+      tokenUsage,
+      totalTokens: tokenUsage.reduce((sum, u) => sum + u.tokens, 0),
+      totalCost: tokenUsage.reduce((sum, u) => sum + u.cost, 0),
+      method: 'hybrid'
+    }
+  }
+}
+
+/**
+ * Save token usage to storage for tracking
+ */
+async function saveTokenUsage(
+  parseId: string,
+  method: 'browser' | 'hybrid' | 'ai-full',
+  tokenUsage: TokenUsage[],
+  totalTokens: number,
+  totalCost: number
+) {
+  try {
+    const result = await chrome.storage.local.get('tokenHistory')
+    const history = result.tokenHistory || []
+
+    history.push({
+      parseId,
+      method,
+      timestamp: Date.now(),
+      tokenUsage,
+      totalTokens,
+      totalCost
+    })
+
+    // Keep only last 100 entries
+    if (history.length > 100) {
+      history.splice(0, history.length - 100)
+    }
+
+    await chrome.storage.local.set({ tokenHistory: history })
+  } catch (error) {
+    console.error('[Token Tracking] Failed to save:', error)
+  }
+}
+
 export async function parseCVWithAI(cvText: string, provider: string, apiKey: string, model?: string): Promise<ParsedCV | null> {
   const parseId = `parse_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
   console.log(`[CV Parsing][${parseId}] Starting...`, { provider, model, cvTextLength: cvText.length })
@@ -1516,7 +2040,8 @@ ${cvText}
   "edu": [{"id":"","deg":"","sch":"","f":"","y":""}]
 }
 
-Dates: "Jan 2020". YOE: number. JSON only.`
+Dates: "Jan 2020". YOE: number. JSON only.
+IMPORTANT: Ensure all string values are properly escaped (especially double quotes inside strings). Never include markdown formatting.`
 
   let content: string | null = null
   let jsonString: string = ''
@@ -1646,7 +2171,7 @@ Dates: "Jan 2020". YOE: number. JSON only.`
         github: parsed.personal?.github || '',
       },
       professional: {
-        title: parsed.pro?.title || '',
+        currentTitle: parsed.pro?.title || '',
         summary: parsed.pro?.sum || '',
         yearsOfExperience: parsed.pro?.yoe || 0,
       },
@@ -1656,9 +2181,34 @@ Dates: "Jan 2020". YOE: number. JSON only.`
         tools: parsed.skills?.tools || [],
         languages: parsed.skills?.languages || [],
       },
-      experience: parsed.exp || [],
-      projects: parsed.proj || [],
-      education: parsed.edu || [],
+      // 🎯 Map experience array fields (r→role, c→company, s→startDate, e→endDate, high→highlights, sk→skills)
+      experience: (Array.isArray(parsed.exp) ? parsed.exp : []).map((exp: any) => ({
+        id: exp.id || '',
+        role: exp.r || '',
+        company: exp.c || '',
+        startDate: exp.s || '',
+        endDate: exp.e || undefined,
+        current: exp.current || false,
+        highlights: Array.isArray(exp.high) ? exp.high : [],
+        skills: Array.isArray(exp.sk) ? exp.sk : [],
+      })),
+      // 🎯 Map projects array fields (n→name, d→description, tech→technologies, high→highlights)
+      projects: (Array.isArray(parsed.proj) ? parsed.proj : []).map((proj: any) => ({
+        id: proj.id || '',
+        name: proj.n || '',
+        description: proj.d || '',
+        technologies: Array.isArray(proj.tech) ? proj.tech : [],
+        url: proj.url || undefined,
+        highlights: Array.isArray(proj.high) ? proj.high : [],
+      })),
+      // 🎯 Map education array fields (deg→degree, sch→school, f→field, y→graduationYear)
+      education: (Array.isArray(parsed.edu) ? parsed.edu : []).map((edu: any) => ({
+        id: edu.id || '',
+        degree: edu.deg || '',
+        school: edu.sch || '',
+        field: edu.f || undefined,
+        graduationYear: edu.y || undefined,
+      })),
     }
 
     // 🎯 Clean URLs in projects before validation
@@ -1734,251 +2284,6 @@ export function generateRoleBasedCV(parsedCV: ParsedCV, roleId: string): ParsedC
   })
 
   return roleCV
-}
-
-// ============================================
-// COVER LETTER GENERATION
-// ============================================
-// AI FIELD MAPPING
-// ============================================
-
-/**
- * 🧠 AI-Powered Field Mapping
- *
- * Analyzes extracted fields and maps CV data to them intelligently
- * No hardcoded patterns - AI figures everything out!
- *
- * @param rawFields - Raw field data from DOM (minimal format)
- * @param cvData - Parsed CV data
- * @returns Field mappings with values to fill
- */
-export interface FieldMapping {
-  fieldId: string
-  fieldName: string
-  detectedAs: string
-  valueToFill: string
-  confidence: 'high' | 'medium' | 'low'
-  reasoning?: string
-}
-
-export async function mapFieldsWithAI(
-  rawFields: Array<{ i: string; n: string; t: string; l: string; p: string; o?: string[] }>,
-  cvData: any
-): Promise<FieldMapping[]> {
-  try {
-    console.log('[Field Mapping] Starting AI field mapping...')
-    console.log('[Field Mapping] Raw fields:', rawFields.length)
-    console.log('[Field Mapping] CV data keys:', Object.keys(cvData))
-
-    const provider = await getActiveProvider()
-    if (!provider) {
-      console.warn('[Field Mapping] No AI provider available')
-      return []
-    }
-
-    console.log('[Field Mapping] Using provider:', provider.provider, 'model:', provider.model)
-
-    // Enhance CV data with parsed phone information
-    const enhancedCV = enhanceCVDataWithPhoneInfo(cvData)
-
-    // Build comprehensive but token-efficient data object
-    const latestExp = enhancedCV.experience?.[0] || {}
-    const latestEdu = enhancedCV.education?.[0] || {}
-    const allSkills = enhancedCV.skills?.technical || []  // All skills for intelligent matching
-    const topProjects = (enhancedCV.projects || []).slice(0, 3).map((p: any) => p.name)
-
-    // Tool definition for dynamic data fetching
-    const getCVFieldTool = {
-      type: "function",
-      function: {
-        name: "get_cv_field",
-        description: "Get additional CV data not in static dataset. Returns field value or empty string if not found.",
-        parameters: {
-          type: "object",
-          properties: {
-            field: {
-              type: "string",
-              description: "Field name to fetch",
-              enum: [
-                "linkedin", "github", "portfolio", "website",
-                "education", "degree", "school", "graduationYear", "fieldOfStudy",
-                "experience", "company", "role", "startDate", "endDate",
-                "projects", "projectNames", "technologies",
-                "availability", "startDate", "noticePeriod",
-                "salary", "expectedSalary", "currentSalary",
-                "languages", "certifications", "achievements"
-              ]
-            }
-          },
-          required: ["field"]
-        }
-      }
-    }
-
-    // Tool handler function
-    const handleToolCall = (toolName: string, args: any): string => {
-      console.log('[handleToolCall] Tool called:', toolName, 'with args:', args)
-
-      if (toolName === 'get_cv_field') {
-        const field = args.field
-        let result: string = ''
-
-        switch (field) {
-          case 'linkedin': result = enhancedCV.personal?.linkedIn || ''; break
-          case 'github': result = enhancedCV.personal?.github || ''; break
-          case 'portfolio': result = enhancedCV.personal?.portfolio || ''; break
-          case 'website': result = enhancedCV.personal?.website || ''; break
-          case 'education': result = JSON.stringify(enhancedCV.education || []); break
-          case 'degree': result = latestEdu.degree || ''; break
-          case 'school': result = latestEdu.school || ''; break
-          case 'graduationYear': result = latestEdu.graduationYear || ''; break
-          case 'fieldOfStudy': result = latestEdu.field || ''; break
-          case 'experience': result = JSON.stringify(enhancedCV.experience || []); break
-          case 'company': result = latestExp.company || ''; break
-          case 'role': result = latestExp.role || ''; break
-          case 'startDate': result = latestExp.startDate || ''; break
-          case 'endDate': result = latestExp.endDate || ''; break
-          case 'projects': result = JSON.stringify(enhancedCV.projects || []); break
-          case 'projectNames': result = topProjects.join(', '); break
-          case 'technologies': result = allSkills.join(', '); break
-          default: result = ''; break
-        }
-
-        console.log('[handleToolCall] Field:', field, '→ Result:', result ? result.substring(0, 50) : '(empty)')
-        return result
-      }
-
-      console.warn('[handleToolCall] Unknown tool:', toolName)
-      return ''
-    }
-
-    // Stage 1: Prompt with comprehensive static data + tools (token-optimized)
-    const prompt = `Match fields to CV.
-
-F:${JSON.stringify(rawFields)}
-D:{
-  "n":"${enhancedCV.personal?.firstName||''} ${enhancedCV.personal?.lastName||''}",
-  "fn":"${enhancedCV.personal?.firstName||''}",
-  "ln":"${enhancedCV.personal?.lastName||''}",
-  "e":"${enhancedCV.personal?.email||''}",
-  "p":"${enhancedCV.personal?.phone||''}",
-  "g":"${enhancedCV.personal?.gender||'prefer_not_to_say'}",
-  "city":"${enhancedCV.personal?.city||''}",
-  "state":"${enhancedCV.personal?.state||''}",
-  "country":"${enhancedCV.personal?.country||''}",
-  "t":"${enhancedCV.professional?.currentTitle||''}",
-  "sum":"${enhancedCV.professional?.summary?.substring(0,120)||''}",
-  "yoe":"${enhancedCV.professional?.yearsOfExperience||0}",
-  "sk":"${allSkills.join(', ')}",
-  "role":"${latestExp.role||''}",
-  "comp":"${latestExp.company||''}",
-  "deg":"${latestEdu.degree||''}",
-  "sch":"${latestEdu.school||''}",
-  "proj":"${topProjects.join(', ')}"
-}
-
-R:[{"i":"fieldId","d":"detectedAs","v":"val"}]
-Map:Use data above. Use get_cv_field tool for missing(li,github,portfolio,etc).
-Pat:*name*→fn/ln,*email*→e,*phone*→p,*title*→t,*skill*→sk,*addr*→city,*msg*→sum. Empty if unknown.`
-
-    console.log('[Field Mapping] Prepared hybrid approach with tools')
-    console.log('[Field Mapping] Tool available: get_cv_field')
-    console.log('[Field Mapping] Starting AI call with tool support...')
-
-    // Call AI with tools (hybrid approach)
-    const startTime = Date.now()
-    let response = await callAIWithTools(provider, prompt, [getCVFieldTool], handleToolCall)
-    const elapsed = Date.now() - startTime
-
-    console.log('[Field Mapping] Total AI call completed in', elapsed, 'ms')
-    console.log('[Field Mapping] AI response received, type:', typeof response)
-    console.log('[Field Mapping] AI response preview:', response?.substring?.(0, 200) || response)
-
-    // Parse response
-    let mappings: FieldMapping[] = []
-
-    try {
-      // Try to parse as JSON
-      if (typeof response === 'string') {
-        // Remove markdown code blocks if present
-        const jsonMatch = response.match(/```(?:json)?\s*(\[[\s\S]*\])\s*```/) || response.match(/(\[[\s\S]*\])/)
-        if (jsonMatch) {
-          mappings = JSON.parse(jsonMatch[1] || jsonMatch[0])
-        } else {
-          mappings = JSON.parse(response)
-        }
-      } else if (response.mappings) {
-        mappings = response.mappings
-      }
-    } catch (error) {
-      console.error('[Field Mapping] Failed to parse AI response:', error)
-    }
-
-    console.log('[Field Mapping] AI returned', mappings.length, 'field mappings')
-    console.log('[Field Mapping] Mappings:', mappings)
-    return mappings
-  } catch (error) {
-    console.error('[Field Mapping] Failed:', error)
-    console.error('[Field Mapping] Error details:', error instanceof Error ? error.message : String(error))
-    return []
-  }
-}
-
-// ============================================
-
-async function generateProfessionalCoverLetter(parsedCV: ParsedCV): Promise<string> {
-  try {
-    const provider = await getActiveProvider()
-    if (!provider) {
-      // Fallback to professional summary if no AI available
-      return parsedCV.professional.summary
-    }
-
-    const prompt = `Write 250-350 word cover letter.
-
-Name: ${parsedCV.personal.firstName} ${parsedCV.personal.lastName}
-Title: ${parsedCV.professional.currentTitle} (${parsedCV.professional.yearsOfExperience}y)
-Skills: ${parsedCV.skills.technical.slice(0, 8).join(', ')}
-
-Recent: ${parsedCV.experience.slice(0, 2).map(e => `${e.role}@${e.company}`).join(' | ')}
-
-Start: "Dear Hiring Manager," - End: "Sincerely,". No markdown.`
-
-    const response = await callAI(provider, prompt)
-    return response.coverLetter || response.letter || response.text || parsedCV.professional.summary
-  } catch (error) {
-    console.error('[Cover Letter Generation] Failed:', error)
-    return parsedCV.professional.summary
-  }
-}
-
-// ============================================
-// UTILITIES
-// ============================================
-
-async function getActiveTabId(): Promise<number | undefined> {
-  const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
-  return tabs[0]?.id
-}
-
-async function scanJobDescription(): Promise<any> {
-  try {
-    const tabId = await getActiveTabId()
-    if (!tabId) return { success: false, error: 'No active tab' }
-    return await chrome.tabs.sendMessage(tabId, { action: 'scanJobDescription' })
-  } catch (error) {
-    return { success: false, error: String(error) }
-  }
-}
-
-async function detectFormFields(): Promise<any> {
-  try {
-    const tabId = await getActiveTabId()
-    if (!tabId) return { success: false, error: 'No active tab' }
-    return await chrome.tabs.sendMessage(tabId, { action: 'detectFields' })
-  } catch (error) {
-    return { success: false, error: String(error) }
-  }
 }
 
 // ============================================

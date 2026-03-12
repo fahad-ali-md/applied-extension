@@ -1,14 +1,14 @@
 # Applied AI Assistant - Chrome Extension
 
-🤖 An intelligent Chrome extension that automatically parses CVs/resumes and fills job application forms using AI.
+🤖 An intelligent Chrome extension that parses CVs/resumes using AI.
 
 ## ✨ Features
 
 - **AI-Powered CV Parsing**: Extracts structured data from CVs using multiple AI providers
-- **Automatic Form Filling**: Fills job application forms with parsed CV data
 - **Multi-Provider Support**: Works with OpenAI, Google Gemini, Zhipu AI, and OpenRouter
 - **Smart Fallback System**: Automatically rotates through AI models when rate limits occur
-- **Real-time Validation**: Validates form fields and provides feedback
+
+> **Note:** Form filling functionality has been removed for learning purposes. You can build your own form filling system from scratch using the parsed CV data!
 
 ## 🚀 Latest Updates
 
@@ -79,11 +79,34 @@ The extension supports multiple AI providers. Add your API keys in the extension
 3. Select "Parse CV"
 4. View extracted structured data
 
-### Fill Job Applications
+> **Form filling functionality removed** - The form filling feature has been intentionally removed so you can build your own custom form filling system. The parsed CV data is stored and ready to be used!
 
-1. Navigate to a job application form
-2. Click "Fill Form" in the extension
-3. The extension will automatically fill fields with your CV data
+## 📁 Project Structure
+
+```
+applied-extension/
+├── src/                    # Source code
+│   ├── background/         # Background scripts
+│   ├── options/            # Options page
+│   ├── popup/              # Popup interface
+│   ├── components/         # React components
+│   └── utils/              # Utility functions
+├── test/                   # Test scripts
+│   ├── test-fallback-system.js
+│   ├── test-openrouter-models.js
+│   └── ... (other test files)
+├── documentation/          # Project documentation
+│   ├── CV_PARSING_ARCHITECTURE.md
+│   ├── PUPPETEER_AUTOMATION.md
+│   └── ... (other docs)
+├── sample-data/            # Sample CV files for testing
+│   ├── Fahad-cv.pdf
+│   ├── Fahad-cv-extracted.json
+│   └── ... (other sample files)
+├── public/                 # Static assets
+├── build/                  # Built extension files
+└── README.md               # This file
+```
 
 ## 🧪 Testing
 
@@ -92,10 +115,10 @@ The extension supports multiple AI providers. Add your API keys in the extension
 npm test
 
 # Test OpenRouter fallback system
-node test-fallback-system.js
+node test/test-fallback-system.js
 
 # Test model availability
-node test-openrouter-models.js
+node test/test-openrouter-models.js
 ```
 
 ## 📊 Model Performance
@@ -140,4 +163,5 @@ This project is licensed under the MIT License.
 ---
 
 ⭐ If you find this project helpful, please give it a star!
+# applied-extension
 # applied-extension

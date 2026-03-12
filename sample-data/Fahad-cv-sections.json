@@ -1,0 +1,136 @@
+{
+  "personal": {},
+  "summary": "Full Stack Developer specializing in the JavaScript/TypeScript ecosystem, particularly Next.js, Node.js, Fastify, and Express.js.",
+  "experience": [
+    {
+      "company": "Solution",
+      "role": "Full Stack Developer",
+      "startDate": "09/2025",
+      "endDate": null,
+      "current": true,
+      "highlights": [
+        "Developed PropDNA.ai , an AI-powered real estate analytics platform using Next.js, Fastify, RAG (Retrieval-Augmented Generation), PostgreSQL, Docker, and Konva for interactive canvas-based visualizations.",
+        "Architected an AI-powered slide generation system that automates presentation creation, utilizing advanced LLMs for intelligent content generation and seamless layout optimization.",
+        "Implemented Go High Level customizations for CRM workflows, enhancing automation and client management capabilities for marketing agencies.",
+        "Architected and deployed multiple SaaS applications with scalable backend systems, implementing secure authentication, real-time data processing, and API integrations.",
+        "Utilized Docker for containerization and deployment, ensuring consistent environments across development and production.",
+        "Integrated RAG pipelines with PostgreSQL and PGVector for advanced semantic search and AI-driven content retrieval."
+      ]
+    },
+    {
+      "company": "Pirhotech.com",
+      "role": "Full stack developer",
+      "startDate": "07/2023",
+      "endDate": "09/2025",
+      "current": false,
+      "highlights": [
+        "Developed and deployed multiple SaaS and e-commerce applications, scaling to handle 700+ concurrent users.",
+        "Built secure, high-performance systems with Next.js, Node.js, PostgreSQL, and Docker, ensuring reliability and scalability.",
+        "Collaborated with organisations like Biddarthi to design and deliver scalable, production-ready platforms."
+      ]
+    },
+    {
+      "company": "Devsonket",
+      "role": "Open Source Contributor",
+      "startDate": "03/2023",
+      "endDate": "05/2023",
+      "current": false,
+      "highlights": [
+        "An organization involved in developing open-source"
+      ]
+    }
+  ],
+  "education": [
+    {
+      "institution": "Bangladesh",
+      "degree": "B.Sc. (Hons) in Computer Science & Engineering",
+      "startDate": "01/2022",
+      "endDate": "02/2026"
+    },
+    {
+      "institution": "College",
+      "degree": "Higher Secondary Certificate",
+      "startDate": "01/2019",
+      "endDate": "01/2021"
+    },
+    {
+      "institution": "College",
+      "degree": "Secondary School Certificate",
+      "startDate": "01/2017",
+      "endDate": "01/2018"
+    }
+  ],
+  "skills": {
+    "frontend": [
+      "JavaScript",
+      "TypeScript",
+      "React",
+      "Next.js",
+      "TailwindCSS",
+      "WebGL",
+      "Three.js"
+    ],
+    "backend": [
+      "Node.js",
+      "Express.js",
+      "REST API",
+      "GraphQL",
+      "Socket.IO"
+    ],
+    "ai_llm": [
+      "LangChain",
+      "RAG (Retrieval-Augmented Generation)",
+      "PGVector"
+    ],
+    "database": [
+      "PostgreSQL",
+      "MongoDB",
+      "SQL"
+    ],
+    "devops": [
+      "Docker",
+      "AWS",
+      "Vercel"
+    ],
+    "others": [
+      "Git",
+      "GitHub",
+      "Bash"
+    ]
+  },
+  "certifications": [
+    "NASA Space Apps Challenge - Certificate of Participation in the NASA Space Apps Challenge AgentX - Microsoft - Certificate for prompt engineering and developing chatbots FreeCodeCamp",
+    "Certificate in Frontend Development Udemy",
+    "Certificate in Backend Development"
+  ],
+  "projects": [
+    {
+      "name": "Certification NASA Space Apps Challenge",
+      "date": "01/2019",
+      "description": "Certificate of Participation in the NASA Space Apps Challenge AgentX - Microsoft - Certificate for prompt engineering and developing chatbots FreeCodeCamp — Certificate in Frontend Development Udemy — Certificate in Backend Development Key Achievements",
+      "highlights": [
+        "Building impactful educational tools",
+        "Successfully built real-time applications and educational tools that enhance user interactions and understanding of complex subjects Languages English . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . Fluent Bangla . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . Native"
+      ],
+      "techStack": []
+    }
+  ],
+  "languages": [
+    {
+      "name": "English",
+      "proficiency": "Native"
+    },
+    {
+      "name": "Fluent Bangla",
+      "proficiency": "Native"
+    },
+    {
+      "name": "Native",
+      "proficiency": "Native"
+    }
+  ],
+  "achievements": [
+    "Building impactful educational tools",
+    "Successfully built real-time applications and educational tools that enhance user interactions and understanding of complex subjects"
+  ]
+}
