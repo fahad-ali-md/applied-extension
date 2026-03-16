@@ -75,7 +75,7 @@ let latex = `
 
 % Custom formatting
 \\pagestyle{empty}
-\\setlist[itemize]{noitemsep, topsep=0pt, leftmargin=1.2em}
+\\setlist[itemize]{noitemsep, topsep=2pt, leftmargin=1.2em}
 \\hypersetup{
     colorlinks=true,
     linkcolor=blue,
@@ -88,6 +88,12 @@ let latex = `
 \\titleformat{\\section}{
   \\large\\bfseries\\uppercase
 }{}{0em}{}[\\titlerule]
+
+% Custom command for experience entries
+\\newcommand{\\expentry}[3]{%
+  \\vspace{4pt}%
+  \\noindent\\textbf{#1} - #2 \\hfill \\textbf{#3}\\\\[-2pt]%
+}
 
 \\begin{document}
 
@@ -120,10 +126,6 @@ let latex = `
 % Skills Section
 \\section{Skills}
 {{SKILLS_SECTION}}
-
-% Languages Section
-\\section{Languages}
-{{LANGUAGES_SECTION}}
 
 % Certifications Section (if exists)
 \\section{Certificate}
@@ -159,7 +161,7 @@ console.log('  ✅ Header generated')
 
 // Summary (with section formatting)
 const summary = cvData.professional?.summary
-  ? `\\textbf{Professional Summary}\\\\\\n${escapeLatex(cvData.professional.summary)}\\n\\n`
+  ? `\\section{Professional Summary}\n\\noindent ${escapeLatex(cvData.professional.summary)}\n`
   : ''
 
 console.log('  ✅ Summary generated')
@@ -190,14 +192,15 @@ const experience = sortedExperience.map(exp => {
     ? `${formatDate(exp.startDate)} - Present`
     : `${formatDate(exp.startDate)} - ${formatDate(exp.endDate)}`
 
-  let content = `\\textbf{${escapeLatex(exp.company || '')}} - ${escapeLatex(exp.role || '')} \\hfill \\textbf{${date}}\\\\\n`
+  // Use \expentry command for consistent formatting
+  let content = `\\expentry{${escapeLatex(exp.company || '')}}{${escapeLatex(exp.role || '')}}{${date}}\n`
 
   if (exp.highlights?.length) {
     content += '\\begin{itemize}\n'
     exp.highlights.forEach(h => {
       content += `  \\item ${escapeLatex(h)}\n`
     })
-    content += '\\end{itemize}\n\n'
+    content += '\\end{itemize}\n'
   }
 
   return content
@@ -207,22 +210,24 @@ console.log('  ✅ Experience generated')
 
 // Education
 const education = cvData.education?.map(edu => {
-  return `\\textbf{${escapeLatex(edu.degree || '')}} - ${escapeLatex(edu.school || '')} \\hfill \\textbf{${edu.graduationYear || ''}}\\\\\n`
-}).join('\n') || '\\textit{No education}'
+  return `\\textbf{${escapeLatex(edu.degree || '')}} - ${escapeLatex(edu.school || '')} \\hfill \\textbf{${edu.graduationYear || ''}}\\\\[2pt]\n`
+}).join('') || '\\textit{No education}'
 
 console.log('  ✅ Education generated')
 
 // Projects
 const projects = cvData.projects?.map(proj => {
-  let content = `\\textbf{${escapeLatex(proj.name || '')}}\n`
+  let content = `\\textbf{${escapeLatex(proj.name || '')}}\\\\\n`
   if (proj.description) {
-    content += `${escapeLatex(proj.description)}\n`
+    content += `${escapeLatex(proj.description)}\\\\\n`
   }
   if (proj.technologies?.length) {
     content += `\\textbf{Tech Stack:} ${proj.technologies.map(t => escapeLatex(t)).join(', ')}\n`
   }
+  // Add \vspace{4pt} between projects
+  content += '\\vspace{4pt}\n'
   return content
-}).join('\n\n') || ''
+}).join('') || ''
 
 console.log('  ✅ Projects generated')
 
@@ -238,9 +243,12 @@ const skills = (() => {
   categories.forEach(([category, skillList]) => {
     if (!skillList) return
 
+    // Capitalize first letter of category name
+    const capitalizedCategory = category.charAt(0).toUpperCase() + category.slice(1)
+
     // Category name in bold with skills on same line
     const skillsText = skillList.map(s => escapeLatex(s)).join(', ')
-    categoryLines.push(`\\textbf{${escapeLatex(category)}}: ${skillsText}`)
+    categoryLines.push(`\\textbf{${escapeLatex(capitalizedCategory)}}: ${skillsText}`)
   })
 
   // Join categories with line break
@@ -248,32 +256,6 @@ const skills = (() => {
 })()
 
 console.log('  ✅ Skills generated (dynamic categories)')
-
-// Languages (extract from rawText)
-const languages = (() => {
-  const rawText = cvData.rawText || ''
-  const languagesMatch = rawText.match(/Languages\s+(.+?)\s*Skills/s)
-  if (languagesMatch) {
-    const languagesText = languagesMatch[1].trim()
-    // Parse languages like "English ... Fluent Bangla ... Native"
-    const result: string[] = []
-    const matches = languagesText.match(/([A-Za-z]+)\s+\.+?\s+(Fluent|Native|Intermediate|Basic)/gi)
-
-    if (matches) {
-      matches.forEach((match: string) => {
-        const parts = match.match(/([A-Za-z]+)\s+\.+?\s+(Fluent|Native|Intermediate|Basic)/i)
-        if (parts) {
-          result.push(`${parts[1]} \\textit{(${parts[2]})}`)
-        }
-      })
-    }
-
-    return result.length > 0 ? result.join(', ') : '\\textit{No languages listed}'
-  }
-  return '\\textit{No languages listed}'
-})()
-
-console.log('  ✅ Languages generated')
 
 // Helper function to escape LaTeX special characters
 function escapeLatex(text: string): string {
@@ -317,7 +299,6 @@ latex = latex.replace(/{{EXPERIENCE_SECTION}}/g, experience)
 latex = latex.replace(/{{EDUCATION_SECTION}}/g, education)
 latex = latex.replace(/{{PROJECTS_SECTION}}/g, projects)
 latex = latex.replace(/{{SKILLS_SECTION}}/g, skills)
-latex = latex.replace(/{{LANGUAGES_SECTION}}/g, languages)
 latex = latex.replace(/{{CERTIFICATIONS_SECTION}}/g, '')
 
 console.log('✅ All placeholders replaced')
