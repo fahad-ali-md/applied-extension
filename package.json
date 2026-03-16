@@ -22,10 +22,12 @@
     "build:all": "npm run build:puppeteer && npm run build",
     "preview": "vite preview",
     "fmt": "prettier --write '**/*.{tsx,ts,json,css,scss,md}'",
-    "zip": "npm run build && node src/zip.js"
+    "zip": "npm run build && node src/zip.js",
+    "generate:pdf": "tsx generate-cv-pdf.ts"
   },
   "dependencies": {
     "@openrouter/sdk": "^0.9.11",
+    "jspdf": "^2.5.2",
     "libphonenumber-js": "^1.12.39",
     "pdfjs-dist": "^5.5.207",
     "puppeteer-core": "^24.38.0",
@@ -48,6 +50,7 @@
     "prettier": "^3.0.3",
     "rollup": "^4.59.0",
     "tslib": "^2.8.1",
+    "tsx": "^4.21.0",
     "typescript": "^5.2.2",
     "vite": "^5.4.10"
   }

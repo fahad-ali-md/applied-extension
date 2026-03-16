@@ -7,9 +7,8 @@ export const Navigation: React.FC<NavigationProps> = ({
   onTabChange,
   onFillClick,
   onDashboardClick,
-  onTestScanClick,
   onSettingsClick,
-  isScanning = false
+  onCVClick
 }) => {
   return (
     <nav className="popup-nav">
@@ -20,20 +19,23 @@ export const Navigation: React.FC<NavigationProps> = ({
         <span className="material-symbols-outlined">auto_fix_high</span>
         <span>Fill</span>
       </button>
+
+      {onCVClick && (
+        <button
+          className={`popup-nav-item ${activeTab === 'cv' ? 'popup-nav-active' : ''}`}
+          onClick={onCVClick}
+        >
+          <span className="material-symbols-outlined">description</span>
+          <span>CV</span>
+        </button>
+      )}
+
       <button
         className={`popup-nav-item ${activeTab === 'dashboard' ? 'popup-nav-active' : ''}`}
         onClick={onDashboardClick}
       >
         <span className="material-symbols-outlined">dashboard</span>
         <span>Dashboard</span>
-      </button>
-
-      <button
-        className={`popup-nav-item ${activeTab === 'test' ? 'popup-nav-active' : ''}`}
-        onClick={onTestScanClick}
-      >
-        <span className="material-symbols-outlined">{isScanning ? 'hourglass_empty' : 'science'}</span>
-        <span>{isScanning ? 'Scanning...' : 'Test Scan'}</span>
       </button>
 
       <button

@@ -1,0 +1,712 @@
+/* CV Generator Component Styles */
+
+.cv-generator {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.cv-generator__header {
+  margin-bottom: 16px;
+}
+
+.cv-generator__header h3 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.cv-generator__description {
+  margin: 0;
+  font-size: 14px;
+  color: #666;
+}
+
+/* Status States */
+.cv-generator--checking,
+.cv-generator--no-data {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.cv-generator__icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+.cv-generator__message {
+  font-size: 16px;
+  font-weight: 500;
+  color: #1a1a1a;
+  margin-bottom: 8px;
+}
+
+.cv-generator__hint {
+  font-size: 14px;
+  color: #666;
+}
+
+/* Progress */
+.cv-generator__progress {
+  background: #f5f5f5;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+.cv-generator__spinner {
+  width: 24px;
+  height: 24px;
+  margin: 0 auto 12px;
+  border: 3px solid #e0e0e0;
+  border-top-color: #0066cc;
+  border-radius: 50%;
+  animation: cv-generator-spin 0.8s linear infinite;
+}
+
+@keyframes cv-generator-spin {
+  to { transform: rotate(360deg); }
+}
+
+.cv-generator__progress-text {
+  font-size: 14px;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.cv-generator__stages {
+  font-size: 12px;
+  color: #666;
+}
+
+/* Success */
+.cv-generator__success {
+  background: #e8f5e9;
+  border: 1px solid #4caf50;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cv-generator__success-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.cv-generator__success-text {
+  flex: 1;
+  font-size: 14px;
+  color: #2e7d32;
+  font-weight: 500;
+}
+
+.cv-generator__pdf-size {
+  font-size: 12px;
+  color: #666;
+  margin-top: 8px;
+}
+
+.cv-generator__upload-stats {
+  font-size: 12px;
+  color: #666;
+  margin-top: 8px;
+}
+
+/* Error */
+.cv-generator__error {
+  background: #ffebee;
+  border: 1px solid #f44336;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.cv-generator__error-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.cv-generator__error-text {
+  flex: 1;
+  font-size: 14px;
+  color: #c62828;
+}
+
+.cv-generator__errors {
+  margin-top: 8px;
+}
+
+.cv-generator__errors .cv-generator__error {
+  padding: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+/* Actions */
+.cv-generator__actions {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.cv-generator__button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cv-generator__button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.cv-generator__button--download {
+  background: #f5f5f5;
+  color: #333;
+  border: 1px solid #e0e0e0;
+}
+
+.cv-generator__button--download:hover:not(:disabled) {
+  background: #e8e8e8;
+}
+
+.cv-generator__button--upload {
+  background: #0066cc;
+  color: white;
+}
+
+.cv-generator__button--upload:hover:not(:disabled) {
+  background: #0052a3;
+}
+
+.cv-generator__button--preview {
+  background: #6c757d;
+  color: white;
+  border: 1px solid #495057;
+}
+
+.cv-generator__button--preview:hover:not(:disabled) {
+  background: #5a6268;
+}
+
+.cv-generator__button-icon {
+  font-size: 16px;
+}
+
+/* Preview Modal */
+.cv-generator__preview-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 20px;
+}
+
+.cv-generator__preview-content {
+  background: white;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 900px;
+  height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.cv-generator__preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.cv-generator__preview-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.cv-generator__preview-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: #666;
+  transition: all 0.2s;
+}
+
+.cv-generator__preview-close:hover {
+  background: #f5f5f5;
+  color: #333;
+}
+
+.cv-generator__preview-frame {
+  flex: 1;
+  overflow: hidden;
+  background: #f5f5f5;
+}
+
+.cv-generator__preview-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+.cv-generator__preview-actions {
+  display: flex;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid #e0e0e0;
+  background: #fafafa;
+  border-radius: 0 0 12px 12px;
+}
+
+.cv-generator__preview-actions .cv-generator__button {
+  flex: 1;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .cv-generator__actions {
+    flex-direction: column;
+  }
+
+  .cv-generator__button {
+    width: 100%;
+  }
+
+  .cv-generator__preview-content {
+    height: 80vh;
+  }
+
+  .cv-generator__preview-actions {
+    flex-direction: column;
+  }
+}
+
+/* Info Section */
+.cv-generator__info {
+  margin-top: 16px;
+}
+
+.cv-generator__info details {
+  background: #f9f9f9;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.cv-generator__info summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: #666;
+  font-weight: 500;
+  user-select: none;
+}
+
+.cv-generator__info summary:hover {
+  color: #333;
+}
+
+.cv-generator__steps {
+  margin: 12px 0 0 0;
+  padding-left: 20px;
+  font-size: 13px;
+  color: #555;
+}
+
+.cv-generator__steps li {
+  margin-bottom: 6px;
+}
+
+/* CV Data Section */
+.cv-generator__data-section {
+  background: #f9f9f9;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.cv-generator__data-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cv-generator__header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.cv-generator__toggle-btn--edit {
+  background: #0066cc;
+  color: white;
+  border-color: #0066cc;
+}
+
+.cv-generator__toggle-btn--edit:hover {
+  background: #0052a3;
+  border-color: #0052a3;
+}
+
+.cv-generator__data-header h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.cv-generator__toggle-btn {
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #0066cc;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cv-generator__toggle-btn:hover {
+  background: #f0f0f0;
+  border-color: #0066cc;
+}
+
+.cv-generator__json-content {
+  background: #2d2d2d;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.cv-generator__json-pre {
+  margin: 0;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  color: #f8f8f2;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.cv-generator__data-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px;
+  padding: 12px;
+  background: #fff;
+  border-radius: 6px;
+  border: 1px solid #e8e8e8;
+}
+
+.cv-generator__data-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.cv-generator__data-label {
+  font-weight: 600;
+  color: #666;
+  min-width: 80px;
+}
+
+.cv-generator__data-value {
+  color: #1a1a1a;
+  font-weight: 500;
+}
+
+/* Embedded PDF Viewer Section */
+.cv-generator__pdf-viewer-section {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.cv-generator__pdf-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.cv-generator__pdf-viewer-header h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: white;
+}
+
+.cv-generator__pdf-size {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 500;
+}
+
+.cv-generator__pdf-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.cv-generator__pdf-controls button {
+  background: white;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #333;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cv-generator__pdf-controls button:hover:not(:disabled) {
+  background: #f0f0f0;
+  border-color: #0066cc;
+  color: #0066cc;
+}
+
+.cv-generator__pdf-controls button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.cv-generator__pdf-controls span {
+  font-size: 13px;
+  color: #666;
+  font-weight: 500;
+  min-width: 80px;
+  text-align: center;
+}
+
+.cv-generator__pdf-viewer-container {
+  width: 100%;
+  height: 600px;
+  background: #f5f5f5;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  padding: 20px;
+}
+
+.cv-generator__pdf-canvas {
+  max-width: 100%;
+  height: auto;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background: white;
+}
+
+.cv-generator__pdf-viewer-loading {
+  height: 600px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: #f5f5f5;
+  color: #666;
+}
+
+.cv-generator__pdf-viewer-loading p {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: #333;
+}
+
+.cv-generator__progress-text {
+  font-size: 13px;
+  color: #666;
+}
+
+/* Responsive for PDF Viewer */
+@media (max-width: 768px) {
+  .cv-generator__pdf-viewer-container,
+  .cv-generator__pdf-viewer-loading {
+    height: 400px;
+  }
+
+  .cv-generator__pdf-viewer-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .cv-generator__actions {
+    flex-direction: column;
+  }
+
+  .cv-generator__button {
+    width: 100%;
+  }
+
+  .cv-generator__pdf-viewer-container,
+  .cv-generator__pdf-viewer-loading {
+    height: 300px;
+  }
+}
+
+/* 🎯 Dynamic Skills Section */
+.cv-generator__skills-section {
+  margin-top: 16px;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+}
+
+.cv-generator__skills-section h5 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.cv-generator__skill-category {
+  margin-bottom: 12px;
+  padding: 10px;
+  background: #f9f9f9;
+  border-radius: 6px;
+  border-left: 3px solid #0066cc;
+}
+
+.cv-generator__skill-category:last-child {
+  margin-bottom: 0;
+}
+
+.cv-generator__category-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.cv-generator__category-name strong {
+  color: #333;
+  font-weight: 600;
+}
+
+.cv-generator__skill-count {
+  font-size: 11px;
+  color: #666;
+  font-weight: 400;
+}
+
+.cv-generator__skill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cv-generator__skill-tag {
+  display: inline-block;
+  padding: 4px 10px;
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-radius: 12px;
+  font-size: 12px;
+  color: #333;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.cv-generator__skill-tag:hover {
+  background: #0066cc;
+  color: white;
+  border-color: #0066cc;
+  transform: translateY(-1px);
+}
+
+/* Skills Editor Modal */
+.cv-generator__modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 20px;
+  animation: cv-generator__fadeIn 0.2s ease-out;
+}
+
+@keyframes cv-generator__fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.cv-generator__modal-content {
+  animation: cv-generator__slideUp 0.3s ease-out;
+}
+
+@keyframes cv-generator__slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}

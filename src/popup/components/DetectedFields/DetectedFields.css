@@ -4,6 +4,19 @@
   border: 1px solid rgba(100, 103, 242, 0.1);
   border-radius: 12px;
   padding: 1rem;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .popup-fields-header {
@@ -28,6 +41,86 @@
   border-radius: 12px;
 }
 
+/* Progress badge */
+.popup-progress-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 12px;
+  padding: 0.25rem 0.5rem;
+  animation: badgeGlow 2s ease-in-out infinite;
+}
+
+@keyframes badgeGlow {
+
+  0%,
+  100% {
+    box-shadow: 0 0 5px rgba(16, 185, 129, 0.2);
+  }
+
+  50% {
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+  }
+}
+
+.popup-progress-count {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #10b981;
+}
+
+.popup-progress-percent {
+  font-size: 0.7rem;
+  color: #10b981;
+  opacity: 0.8;
+}
+
+/* Progress bar */
+.popup-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: rgba(15, 23, 42, 0.8);
+  border-radius: 3px;
+  margin-bottom: 1rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.popup-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981 0%, #34d399 100%);
+  border-radius: 3px;
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  animation: progressShine 2s linear infinite;
+}
+
+.popup-progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.3) 50%,
+      transparent 100%);
+  animation: progressShine 1.5s ease-in-out infinite;
+}
+
+@keyframes progressShine {
+  0% {
+    background-position: -100% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
 .popup-fields-list {
   display: flex;
   flex-direction: column;
@@ -42,7 +135,69 @@
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(100, 103, 242, 0.1);
   border-radius: 8px;
-  transition: all 0.2s;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: fadeInUp 0.4s ease-out backwards;
+}
+
+/* Staggered animation for each field */
+.popup-field-item:nth-child(1) {
+  animation-delay: 0.05s;
+}
+
+.popup-field-item:nth-child(2) {
+  animation-delay: 0.1s;
+}
+
+.popup-field-item:nth-child(3) {
+  animation-delay: 0.15s;
+}
+
+.popup-field-item:nth-child(4) {
+  animation-delay: 0.2s;
+}
+
+.popup-field-item:nth-child(5) {
+  animation-delay: 0.25s;
+}
+
+.popup-field-item:nth-child(6) {
+  animation-delay: 0.3s;
+}
+
+.popup-field-item:nth-child(7) {
+  animation-delay: 0.35s;
+}
+
+.popup-field-item:nth-child(8) {
+  animation-delay: 0.4s;
+}
+
+.popup-field-item:nth-child(9) {
+  animation-delay: 0.45s;
+}
+
+.popup-field-item:nth-child(10) {
+  animation-delay: 0.5s;
+}
+
+.popup-field-item:nth-child(11) {
+  animation-delay: 0.55s;
+}
+
+.popup-field-item:nth-child(12) {
+  animation-delay: 0.6s;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(15px) scale(0.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .popup-field-item:hover {
@@ -119,29 +274,133 @@
 
 /* 🎯 Field Status Styles */
 .popup-field-filled {
-  background: rgba(16, 185, 129, 0.1) !important;
-  border-color: rgba(16, 185, 129, 0.3) !important;
+  background: rgba(16, 185, 129, 0.05) !important;
+  border-color: rgba(16, 185, 129, 0.2) !important;
+  transform: scale(0.98);
+  opacity: 0.8;
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  animation: successPop 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+@keyframes successPop {
+  0% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.05);
+  }
+
+  100% {
+    transform: scale(0.98);
+  }
 }
 
 .popup-field-filled .popup-field-left .material-symbols-outlined {
   color: #10b981;
+  animation: checkBounce 0.5s ease-out;
+}
+
+@keyframes checkBounce {
+  0% {
+    transform: scale(0);
+  }
+
+  50% {
+    transform: scale(1.3);
+  }
+
+  100% {
+    transform: scale(1);
+  }
 }
 
 .popup-field-label-filled {
   color: #10b981 !important;
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+  opacity: 0.6;
+  animation: strikethrough 0.4s ease-out forwards;
+}
+
+@keyframes strikethrough {
+  from {
+    text-decoration-color: transparent;
+    transform: translateX(0);
+  }
+
+  to {
+    text-decoration-color: #10b981;
+    transform: translateX(4px);
+  }
 }
 
 .popup-field-filled .popup-field-check {
   color: #10b981;
+  animation: checkmarkSlide 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+@keyframes checkmarkSlide {
+  from {
+    transform: translateX(-10px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 
 .popup-field-failed {
   background: rgba(239, 68, 68, 0.1) !important;
   border-color: rgba(239, 68, 68, 0.3) !important;
+  animation: shake 0.5s cubic-bezier(.36, .07, .19, .97) both;
+}
+
+@keyframes shake {
+
+  10%,
+  90% {
+    transform: translateX(-1px);
+  }
+
+  20%,
+  80% {
+    transform: translateX(2px);
+  }
+
+  30%,
+  50%,
+  70% {
+    transform: translateX(-4px);
+  }
+
+  40%,
+  60% {
+    transform: translateX(4px);
+  }
 }
 
 .popup-field-failed .popup-field-left .material-symbols-outlined {
   color: #ef4444;
+  animation: errorShake 0.5s ease-out;
+}
+
+@keyframes errorShake {
+
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+
+  25% {
+    transform: rotate(-10deg);
+  }
+
+  75% {
+    transform: rotate(10deg);
+  }
 }
 
 .popup-field-failed .popup-field-left span:not(.material-symbols-outlined) {
@@ -150,13 +409,22 @@
 
 .popup-field-failed .popup-field-check {
   color: #ef4444;
+  animation: errorFade 0.4s ease-out;
 }
 
-/* 🎯 Pending state (default unchecked) */
-.popup-field-item {
-  /* Default styles apply for pending state */
+@keyframes errorFade {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
+/* 🎯 Pending state & Defaults */
 .popup-field-item .popup-field-left .material-symbols-outlined {
   color: #6467f2;
 }

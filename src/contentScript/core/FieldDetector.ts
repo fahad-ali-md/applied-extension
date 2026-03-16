@@ -128,7 +128,7 @@ export class AIFieldDetector {
     }
   }
 
-  private findLabelForField(field: HTMLElement): string | null {
+  findLabelForField(field: HTMLElement): string | null {
     if (field.id) {
       const label = document.querySelector(`label[for="${field.id}"]`)
       if (label) return label.textContent?.trim() || null
@@ -220,6 +220,18 @@ export class HybridFieldDetector {
     cvData: any,
     getAIResponse: (prompt: string) => Promise<any>
   ): Promise<HTMLElement | null> {
+
+    // 1. Try cheap/fast pattern matching FIRST
+    console.log(`[HybridFieldDetector] Trying pattern matching for ${fieldType}`)
+    const patternField = this.patternDetector.findField(fieldType)
+
+    if (patternField) {
+      console.log(`[HybridFieldDetector] ✓ Pattern found field for ${fieldType}`)
+      return patternField
+    }
+
+    // 2. Fallback: Only use AI if pattern matching fails
+    console.warn(`[HybridFieldDetector] Patterns failed, trying AI fallback...`)
     try {
       const aiField = await this.aiDetector.findFieldWithAI(fieldType, cvData, getAIResponse)
       if (aiField) {
@@ -227,11 +239,10 @@ export class HybridFieldDetector {
         return aiField
       }
     } catch (error) {
-      console.warn(`[HybridFieldDetector] AI failed, trying patterns...`)
+      console.error(`[HybridFieldDetector] AI fallback failed:`, error)
     }
 
-    console.log(`[HybridFieldDetector] Trying pattern matching for ${fieldType}`)
-    return this.patternDetector.findField(fieldType)
+    return null
   }
 
   findAllFieldsContaining(keyword: string): HTMLElement[] {
@@ -318,6 +329,35 @@ export class FieldDetector {
             return next as HTMLElement
           }
         }
+      }
+    }
+
+    return null
+  }
+
+  findLabelForField(field: HTMLElement): string | null {
+    if (field.id) {
+      const label = document.querySelector(`label[for="${field.id}"]`)
+      if (label) return label.textContent?.trim() || null
+    }
+
+    const parentLabel = field.closest('label')
+    if (parentLabel) {
+      const clone = parentLabel.cloneNode(true) as HTMLElement
+      const inputInClone = clone.querySelector('input, textarea, select')
+      if (inputInClone) inputInClone.remove()
+      return clone.textContent?.trim() || null
+    }
+
+    let previous = field.previousElementSibling
+    if (previous?.matches('label')) {
+      return previous.textContent?.trim() || null
+    }
+
+    if (field.parentElement) {
+      const parentPrevious = field.parentElement.previousElementSibling
+      if (parentPrevious?.matches('label')) {
+        return parentPrevious.textContent?.trim() || null
       }
     }
 

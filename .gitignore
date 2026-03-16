@@ -50,3 +50,7 @@ debug-*.js
 check-*.js
 *.sh
 *.pdf
+
+# Sample data
+sample-data/
+*.json

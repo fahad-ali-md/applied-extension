@@ -1,5 +1,8 @@
 import { z } from 'zod'
 
+// CV Workflow Setup
+import { setupCVWorkflowListener } from '../utils/cvWorkflow'
+
 // ============================================
 // ZOD VALIDATION SCHEMAS
 //============================================
@@ -57,12 +60,7 @@ const ParsedCVSchema = z.object({
     summary: z.string(),
     yearsOfExperience: z.number().nonnegative(),
   }),
-  skills: z.object({
-    technical: z.array(z.string()),
-    soft: z.array(z.string()),
-    tools: z.array(z.string()),
-    languages: z.array(z.string()),
-  }),
+  skills: z.record(z.string(), z.array(z.string())), // Dynamic categories: { "Frontend": [...], "Backend": [...] }
   experience: z.array(WorkExperienceSchema),
   projects: z.array(ProjectSchema),
   education: z.array(EducationSchema),
@@ -124,12 +122,7 @@ interface ParsedCV {
     summary: string
     yearsOfExperience: number
   }
-  skills: {
-    technical: string[]
-    soft: string[]
-    tools: string[]
-    languages: string[]
-  }
+  skills: Record<string, string[]> // Dynamic categories: { "Frontend": [...], "Backend": [...] }
   experience: WorkExperience[]
   projects: Project[]
   education: Education[]
@@ -254,10 +247,10 @@ const AI_PROVIDERS: Record<string, AIProvider> = {
     defaultModel: 'gemini-2.5-flash',
   },
   zhipu: {
-    name: 'Zhipu AI (Z.ai)',
+    name: 'Zhipu AI (BigModel)',
     key: STORAGE_KEYS.API_KEY_ZHIPU,
-    baseUrl: 'https://api.z.ai/api/paas/v4',
-    defaultModel: 'glm-4-flash',
+    baseUrl: 'https://api.z.ai/api/anthropic/v1',
+    defaultModel: 'glm-4.7',
   },
   openrouter: {
     name: 'OpenRouter',
@@ -311,14 +304,16 @@ const DEFAULT_MODELS = {
   ],
   zhipu: [
     { id: 'glm-5', name: 'GLM-5' },
-    { id: 'glm-4', name: 'GLM-4' },
-    { id: 'glm-4-flash', name: 'GLM-4 Flash' },
+    { id: 'glm-4.7', name: 'GLM-4.7' },
+    { id: 'glm-4.6', name: 'GLM-4.6' },
+    { id: 'glm-4.5', name: 'GLM-4.5' },
+    { id: 'glm-4.5-air', name: 'GLM-4.5 Air' },
   ],
   openrouter: [
     { id: 'nvidia/nemotron-3-nano-30b-a3b:free', name: 'NVIDIA Nemotron 30B (Free)' }, // 🚀 FASTEST (620ms)
     { id: 'arcee-ai/trinity-large-preview:free', name: 'Arcee Trinity Large (Free)' }, // ✅ Excellent (1135ms)
     { id: 'liquid/lfm-2.5-1.2b-instruct:free', name: 'LFM 2.5 Instruct (Free)' }, // ✅ Good quality (1161ms)
-    { id: 'openrouter/free', name: 'Free Models Router (Auto)' }, // ✅ Working (1971ms)
+    // REMOVED: 'openrouter/free' - NOT a valid model ID for API calls
     { id: 'z-ai/glm-4.5-air:free', name: 'Z.ai GLM 4.5 Air (Free)' }, // ✅ Working but slow (9838ms)
     { id: 'google/gemma-3-4b-it:free', name: 'Google Gemma 3 4B (Free)' }, // 🔴 Rate limited
     // Removed: google/gemma-3-12b-it:free (returns 400 error)
@@ -449,7 +444,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
       if (result[STORAGE_KEYS.API_KEY_ZHIPU] && !providers.some((p: any) => p.id === 'zhipu')) {
         console.log('[getAvailableProviders] Adding Zhipu from old-style key')
-        providers.push({ id: 'zhipu', name: 'Zhipu AI', model: 'glm-4-flash', modelName: 'GLM-4 Flash' })
+        providers.push({ id: 'zhipu', name: 'Zhipu AI', model: 'glm-4.7', modelName: 'GLM-4.7' })
       }
       if (result[STORAGE_KEYS.API_KEY_OPENROUTER] && !providers.some((p: any) => p.id === 'openrouter')) {
         console.log('[getAvailableProviders] Adding OpenRouter from old-style key')
@@ -550,11 +545,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         phone: browserResult.personal.phone || 'MISSING',
         experience: browserResult.experience.length,
         education: browserResult.education.length,
-        skills: browserResult.skills.technical.length
+        skills: browserResult.skills._raw?.length || 0
       }
     })
 
     // 🎯 Step 2: Check if confidence is good enough
+    console.log(`🔍 [DEBUG] Smart Parser - Browser result skills:`, JSON.stringify(browserResult.skills, null, 2))
+
     if (browserResult.confidence >= BROWSER_PARSING_CONFIDENCE_THRESHOLD) {
       console.log(`[Smart CV Parser][${parseId}] ✅ Browser parsing successful! (${browserResult.confidence}% >= ${BROWSER_PARSING_CONFIDENCE_THRESHOLD}%)`)
       console.log(`[Smart CV Parser][${parseId}] 💰 Cost: $0.00 (FREE!)`)
@@ -575,18 +572,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           summary: `Extracted with ${browserResult.confidence}% confidence using browser-based parsing.`,
           yearsOfExperience: browserResult.experience.length > 0 ? browserResult.experience.length : 0
         },
-        skills: {
-          technical: browserResult.skills.technical,
-          soft: browserResult.skills.soft,
-          tools: browserResult.skills.tools,
-          languages: []
-        },
+        skills: browserResult.skills || {}, // Dynamic categories from browser parser
         experience: browserResult.experience,
         projects: browserResult.projects,
         education: browserResult.education,
         rawText: cvText,
         parsedAt: Date.now()
       }
+
+      console.log(`✅ [DEBUG] Browser Parser - Final ParsedCV skills:`, JSON.stringify(parsedCV.skills, null, 2))
 
       // Save and return
       chrome.storage.local.set({ [STORAGE_KEYS.PARSED_CV]: parsedCV }).then(() => {
@@ -614,6 +608,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           console.log(`[Smart CV Parser][${parseId}] ✅ Hybrid parsing successful!`)
           console.log(`[Smart CV Parser][${parseId}] 💰 Cost: $${hybridResult.totalCost.toFixed(6)} (${hybridResult.totalTokens} tokens)`)
 
+          // Preserve languages from browser parser if hybrid didn't find any
+          if (browserResult.skills.languages && browserResult.skills.languages.length > 0) {
+            if (!hybridResult.data.skills.languages || hybridResult.data.skills.languages.length === 0) {
+              hybridResult.data.skills.languages = browserResult.skills.languages
+              console.log(`[Smart CV Parser][${parseId}] 📝 Preserved languages from browser parser:`, browserResult.skills.languages)
+            }
+          }
+
           chrome.storage.local.set({ [STORAGE_KEYS.PARSED_CV]: hybridResult.data }).then(() => {
             sendResponse({
               success: true,
@@ -639,6 +641,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         if (parsedCV) {
           console.log(`[Smart CV Parser][${parseId}] ✅ Full AI parsing successful!`)
           console.log(`[Smart CV Parser][${parseId}] 💰 Cost: ~$0.0004`)
+
+          // Preserve languages from browser parser if AI didn't find any
+          if (browserResult.skills.languages && browserResult.skills.languages.length > 0) {
+            if (!parsedCV.skills.languages || parsedCV.skills.languages.length === 0) {
+              parsedCV.skills.languages = browserResult.skills.languages
+              console.log(`[Smart CV Parser][${parseId}] 📝 Preserved languages from browser parser:`, browserResult.skills.languages)
+            }
+          }
 
           chrome.storage.local.set({ [STORAGE_KEYS.PARSED_CV]: parsedCV }).then(() => {
             sendResponse({
@@ -703,17 +713,84 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   // AI requests for smart form handling
-  if (request.action === 'askAI') {
-    getActiveProvider()
-      .then((provider: ProviderConfig | null) => {
-        if (!provider) throw new Error('No AI provider configured')
-        return callAI(provider, request.prompt)
+  if (request.action === 'getSettings') {
+    chrome.storage.local.get(STORAGE_KEYS.SETTINGS, (result) => {
+      sendResponse(result[STORAGE_KEYS.SETTINGS] || {
+        autoFill: false,
+        aiEnhancement: true,
+        confirmBeforeFill: true,
       })
-      .then(result => sendResponse({ success: true, data: result }))
-      .catch(error => sendResponse({ success: false, error: error.message }))
+    })
+    return true
+  }
+
+  if (request.action === 'askAI') {
+    handleAskAI(request, sendResponse)
     return true
   }
 })
+
+async function handleAskAI(request: any, sendResponse: (response: any) => void) {
+  try {
+    const configResult = await chrome.storage.local.get(['settings', STORAGE_KEYS.PROVIDER_CONFIGS])
+    const settings = configResult.settings || {}
+    const activeProvider = settings.activeProvider || 'gemini'
+
+    // Fallback to directly checking keys if provider_configs isn't set up yet
+    const rawKeys = await chrome.storage.local.get([
+      STORAGE_KEYS.API_KEY_OPENAI,
+      STORAGE_KEYS.API_KEY_GEMINI,
+      STORAGE_KEYS.API_KEY_ZHIPU,
+      STORAGE_KEYS.API_KEY_OPENROUTER
+    ])
+
+    const configs = configResult[STORAGE_KEYS.PROVIDER_CONFIGS] || {}
+    let apiKey = ''
+    let modelName = ''
+
+    if (configs[activeProvider]) {
+      apiKey = configs[activeProvider].apiKey
+      modelName = configs[activeProvider].model  // Use model ID, not display name
+    } else {
+      // Legacy fallback
+      const providerKeyStr = AI_PROVIDERS[activeProvider]?.key || `${activeProvider}_api_key`
+      apiKey = rawKeys[providerKeyStr]
+      modelName = AI_PROVIDERS[activeProvider]?.defaultModel
+    }
+
+    if (!apiKey) {
+      sendResponse({ success: false, error: 'No API key configured for ' + activeProvider })
+      return
+    }
+
+    let result: string | null = null
+    switch (activeProvider) {
+      case 'openai':
+        result = await callOpenAI(apiKey, request.prompt, modelName || 'gpt-4o-mini')
+        break
+      case 'gemini':
+        result = await callGemini(apiKey, request.prompt, modelName || 'gemini-2.5-flash')
+        break
+      case 'openrouter':
+        const orResult = await callOpenRouterWithFallback(apiKey, request.prompt, modelName)
+        result = orResult.content
+        break
+      case 'zhipu':
+        result = await callZhipu(apiKey, request.prompt, modelName || 'glm-4.5-air')
+        break
+    }
+
+    if (!result) {
+      sendResponse({ success: false, error: 'AI returned an empty response' })
+      return
+    }
+
+    sendResponse({ success: true, data: result })
+  } catch (error: any) {
+    console.error('[askAI handler failed]', error)
+    sendResponse({ success: false, error: error.message })
+  }
+}
 
 // ============================================
 // AI FUNCTIONS
@@ -762,8 +839,8 @@ async function getActiveProvider(): Promise<ProviderConfig | null> {
     zhipu: {
       key: result[STORAGE_KEYS.API_KEY_ZHIPU] || '',
       provider: 'zhipu',
-      model: 'glm-4-flash',
-      modelName: 'GLM-4 Flash'
+      model: 'glm-4.7',
+      modelName: 'GLM-4.7'
     },
     openrouter: {
       key: result[STORAGE_KEYS.API_KEY_OPENROUTER] || '',
@@ -915,20 +992,20 @@ async function callGemini(apiKey: string, prompt: string, model: string, tools?:
 }
 
 async function callZhipu(apiKey: string, prompt: string, model: string, tools?: any[]): Promise<string | null> {
-  const response = await fetch(`${AI_PROVIDERS.zhipu.baseUrl}/chat/completions`, {
+  const response = await fetch(`${AI_PROVIDERS.zhipu.baseUrl}/messages`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
       model: model,
+      max_tokens: CV_PARSING.MAX_TOKENS.zhipu,
+      system: 'You are a helpful assistant that returns only valid JSON.',
       messages: [
-        { role: 'system', content: 'You are a helpful assistant that returns only valid JSON.' },
         { role: 'user', content: prompt },
       ],
-      temperature: 0.1,
-      max_tokens: CV_PARSING.MAX_TOKENS.zhipu,
       ...(tools && tools.length > 0 ? { tools: tools, tool_choice: "auto" } : {})
     }),
   })
@@ -940,7 +1017,7 @@ async function callZhipu(apiKey: string, prompt: string, model: string, tools?: 
   }
 
   const data = await response.json()
-  return data.choices[0]?.message?.content
+  return data.content?.[0]?.text || null
 }
 
 async function callOpenRouter(apiKey: string, prompt: string, model: string, tools?: any[]): Promise<string | null> {
@@ -1005,12 +1082,11 @@ async function callOpenRouterWithFallback(
   // Avoid duplicates by filtering out the primary model from backup list
   const primaryModel = model || 'nvidia/nemotron-3-nano-30b-a3b:free' // Fastest working model
   const backupModels = [
-    'nvidia/nemotron-3-nano-30b-a3b:free',  // 🚀 FASTEST (620ms) - EXCELLENT quality
     'arcee-ai/trinity-large-preview:free',  // ✅ Good (1135ms) - EXCELLENT quality
     'liquid/lfm-2.5-1.2b-instruct:free',    // ✅ Good (1161ms) - GOOD quality
-    'openrouter/free',                      // ✅ Working (1971ms) - EXCELLENT quality
     'z-ai/glm-4.5-air:free',                // ✅ Working (9838ms) - EXCELLENT quality (slow!)
-    'google/gemma-3-4b-it:free',            // 🔴 Rate limited currently
+    // REMOVED: 'openrouter/free' - NOT a valid model ID, causes API error
+    // REMOVED: 'google/gemma-3-4b-it:free' - Rate limited
     // Removed: google/gemma-3-12b-it:free (returns 400 error)
   ].filter(m => m !== primaryModel) // Remove primary to avoid duplicates
 
@@ -1208,16 +1284,17 @@ async function testAPIConnection(provider: string, apiKey: string, model?: strin
       const data = await response.json()
       content = data.candidates?.[0]?.content?.parts?.[0]?.text
     } else if (provider === 'zhipu') {
-      const response = await fetch(`${AI_PROVIDERS.zhipu.baseUrl}/chat/completions`, {
+      const response = await fetch(`${AI_PROVIDERS.zhipu.baseUrl}/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: model || 'glm-4-flash',
-          messages: [{ role: 'user', content: testPrompt }],
+          model: model || 'glm-4.7',
           max_tokens: 50,
+          messages: [{ role: 'user', content: testPrompt }],
         }),
       })
 
@@ -1227,7 +1304,7 @@ async function testAPIConnection(provider: string, apiKey: string, model?: strin
       }
 
       const data = await response.json()
-      content = data.choices?.[0]?.message?.content
+      content = data.content?.[0]?.text
     } else if (provider === 'openrouter') {
       const response = await fetch(`${AI_PROVIDERS.openrouter.baseUrl}/chat/completions`, {
         method: 'POST',
@@ -1425,11 +1502,7 @@ interface BrowserParsedResult {
     field?: string
     graduationYear?: string
   }>
-  skills: {
-    technical: string[]
-    soft: string[]
-    tools: string[]
-  }
+  skills: Record<string, string[]> // Dynamic categories
   projects: Array<{
     id: string
     name: string
@@ -1451,11 +1524,7 @@ export function parseCVWithBrowser(cvText: string): BrowserParsedResult {
     personal: {},
     experience: [],
     education: [],
-    skills: {
-      technical: [],
-      soft: [],
-      tools: []
-    },
+    skills: {}, // Dynamic categories
     projects: [],
     confidence: 0,
     method: 'browser'
@@ -1637,8 +1706,8 @@ export function parseCVWithBrowser(cvText: string): BrowserParsedResult {
   // ========== 7. Extract Skills ==========
   const skillsPatterns = [
     /Skills\s*:?\s*(.+?)(?=\n\n|Experience|Education|Certifications|Projects|Languages|$)/is,
-    /Technical\s+Skills?\s*:?\s*(.+?)(?=\n\n|Experience|Education|Certifications|Projects|Languages|$)/is,
-    /Technical\s+Expertise\s*:?\s*(.+?)(?=\n\n|Experience|Education|Certifications|Projects|Languages|Cloud|$)/is,
+    /\s+Skills?\s*:?\s*(.+?)(?=\n\n|Experience|Education|Certifications|Projects|Languages|$)/is,
+    /\s+Expertise\s*:?\s*(.+?)(?=\n\n|Experience|Education|Certifications|Projects|Languages|Cloud|$)/is,
     /Skills\s*\n(.+?)\n(?=\n\n|Experience|Education|Projects|$)/is
   ]
 
@@ -1654,27 +1723,119 @@ export function parseCVWithBrowser(cvText: string): BrowserParsedResult {
         .filter(s => s.length > 2 && s.length < 50 && !s.includes('http'))
 
       if (skills.length > 0 && skills.length < 100) {
-        // Categorize skills
-        const techKeywords = ['javascript', 'python', 'java', 'react', 'node', 'angular', 'vue', 'typescript', 'sql', 'html', 'css', 'docker', 'aws', 'git', 'rest', 'graphql', 'mongodb', 'postgresql', 'mysql']
-        const softKeywords = ['communication', 'leadership', 'team', 'problem', 'management', 'agile', 'scrum']
-
-        result.skills.technical = skills.filter(s =>
-          techKeywords.some(k => s.toLowerCase().includes(k))
-        )
-        result.skills.soft = skills.filter(s =>
-          softKeywords.some(k => s.toLowerCase().includes(k))
-        )
-        result.skills.tools = skills.filter(s =>
-          !result.skills.technical.includes(s) && !result.skills.soft.includes(s)
-        ).slice(0, 20)
-
-        if (result.skills.technical.length > 0 || result.skills.tools.length > 0) {
-          score += 10
-          fieldsFound.push('skills')
-        }
+        // Store skills uncategorized - AI will categorize them later
+        result.skills._raw = skills
+        score += 10
+        fieldsFound.push('skills')
       }
       break
     }
+  }
+
+  // ========== 8. Extract Languages ==========
+  console.log('[Browser CV Parser] 🔍 Looking for Languages section...')
+  console.log('[Browser CV Parser] Full CV text length:', cvText.length)
+
+  // First, try to find the Languages section and extract it
+  const languagesPatterns = [
+    // Match Languages section, stop at next section header (with colon) or double newline
+    /Languages?\s*:?\s*(.+?)(?=\n\s*[A-Z][a-z]+\s*:|Projects\s*:|$)/is,
+    /Language\s+Proficiency\s*:?\s*(.+?)(?=\n\s*[A-Z][a-z]+\s*:|Projects\s*:|$)/is
+  ]
+
+  let languagesText = ''
+  for (const pattern of languagesPatterns) {
+    const match = cvText.match(pattern)
+    if (match && match[1].trim().length > 3) {
+      languagesText = match[1].trim()
+      console.log('[Browser CV Parser] ✅ Languages section found:', languagesText.substring(0, 200))
+      break
+    }
+  }
+
+  // If no pattern match, try to find "Languages" keyword and extract everything after it
+  if (!languagesText) {
+    const languagesIndex = cvText.toLowerCase().indexOf('languages')
+    if (languagesIndex !== -1) {
+      console.log('[Browser CV Parser] Found "Languages" at index:', languagesIndex)
+      // Extract 500 characters after "Languages"
+      const afterLanguages = cvText.substring(languagesIndex + 9, languagesIndex + 500)
+      console.log('[Browser CV Parser] Text after "Languages":', afterLanguages.substring(0, 200))
+
+      // Try to extract until next section
+      const nextSectionMatch = afterLanguages.match(/^([\s\S]+?)(?=\n\s*(Experience|Education|Certifications|Projects|Skills|$))/im)
+      if (nextSectionMatch) {
+        languagesText = nextSectionMatch[1].trim()
+        console.log('[Browser CV Parser] Extracted using next section match:', languagesText.substring(0, 200))
+      } else {
+        // Fallback: just use the first 300 characters
+        languagesText = afterLanguages.substring(0, 300).trim()
+        console.log('[Browser CV Parser] Using fallback extraction:', languagesText.substring(0, 200))
+      }
+    }
+  }
+
+  if (languagesText) {
+    const languageEntries: string[] = []
+
+    // Clean up the text - remove extra dots and spaces
+    const cleanText = languagesText.replace(/[.\s]+/g, ' ').trim()
+    console.log('[Browser CV Parser] Cleaned text:', cleanText.substring(0, 200))
+
+    // Try pattern: "Language - Level" or "Language – Level"
+    const dashMatches = cleanText.match(/([A-Za-z]+)\s*[\-–]\s*(Fluent|Native|Intermediate|Basic|Advanced)/gi)
+    if (dashMatches) {
+      dashMatches.forEach(entry => {
+        const parts = entry.split(/[\-–]/)
+        if (parts.length === 2) {
+          const lang = parts[0].trim()
+          const level = parts[1].trim()
+          languageEntries.push(`${lang} (${level})`)
+        }
+      })
+    }
+
+    // Try pattern: "Language Level" (adjacent words)
+    if (languageEntries.length === 0) {
+      const words = cleanText.split(/\s+/)
+      for (let i = 0; i < words.length - 1; i++) {
+        const word = words[i].trim()
+        const nextWord = words[i + 1].trim()
+
+        // Check if next word is a proficiency level
+        if (/^(Fluent|Native|Intermediate|Basic|Advanced)$/i.test(nextWord)) {
+          if (/^[A-Za-z]+$/.test(word) && word.length > 2) {
+            languageEntries.push(`${word} (${nextWord})`)
+          }
+        }
+      }
+    }
+
+    // Try pattern with dots: "Language . . . Level"
+    if (languageEntries.length === 0) {
+      const dotMatches = languagesText.match(/([A-Za-z]+)\s*[.\s]+\s*(Fluent|Native|Intermediate|Basic|Advanced)/gi)
+      if (dotMatches) {
+        dotMatches.forEach(entry => {
+          const parts = entry.split(/[.\s]+/)
+          const lang = parts[0].trim()
+          const level = parts[parts.length - 1].trim()
+          if (/^[A-Za-z]+$/.test(lang) && /^(Fluent|Native|Intermediate|Basic|Advanced)$/i.test(level)) {
+            languageEntries.push(`${lang} (${level})`)
+          }
+        })
+      }
+    }
+
+    if (languageEntries.length > 0) {
+      result.skills.languages = languageEntries
+      score += 5
+      fieldsFound.push('languages')
+      console.log('[Browser CV Parser] ✅ Languages parsed:', languageEntries)
+    } else {
+      console.log('[Browser CV Parser] ⚠️ Languages section found but could not parse entries')
+    }
+  } else {
+    console.log('[Browser CV Parser] ⚠️ No Languages section found in CV')
   }
 
   // ========== FINAL QUALITY CHECK ==========
@@ -1777,12 +1938,7 @@ export async function parseCVWithHybrid(
       summary: '',
       yearsOfExperience: 0
     },
-    skills: {
-      technical: [],
-      soft: [],
-      tools: [],
-      languages: []
-    },
+    skills: {}, // Dynamic categories
     experience: [],
     projects: [],
     education: []
@@ -1829,18 +1985,26 @@ ${cleanedCVText}
 {
   "personal": {"f":"","l":""},
   "pro": {"title":"","sum":"","yoe":0},
-  "skills": {"tech":[],"soft":[],"tools":[]},
+  "skills": {
+    "Frontend Development": ["React", "JavaScript"],
+    "Backend Development": ["Node.js", "Python"]
+  },
   "exp": [{"id":"","r":"","c":"COMPANY_NAME","s":"","e":"","current":false,"high":[],"sk":[]}],
   "proj": [{"id":"","n":"","d":"","tech":[],"url":"","high":[]}],
   "edu": [{"id":"","deg":"","sch":"SCHOOL_NAME","f":"","y":""}]
 }
 
-IMPORTANT:
-- "c" = company name (extract actual company, never leave empty)
-- "sch" = school name (extract actual school, never leave empty)
-- Dates: "Jan 2020". YOE: number. JSON only.
-- Ensure all string values are properly escaped (especially double quotes inside strings).
-- Never include markdown.`
+CRITICAL RULES:
+1. Create DYNAMIC categories for skills (4-8 logical categories based on CV)
+2. NO DUPLICATES: Each skill appears in EXACTLY ONE category
+3. Use descriptive names: "Frontend Development", "Backend Development", "Databases", etc.
+4. Group related skills: React+TypeScript+Next.js → "Frontend Development"
+5. "c" = company name (extract actual company, never leave empty)
+6. "sch" = school name (extract actual school, never leave empty)
+7. Dates: "Jan 2020". YOE: number. JSON only.
+8. Create YOUR OWN category names based on CV content (NOT the examples above)
+9. Ensure all string values are properly escaped (especially double quotes inside strings).
+10. Never include markdown.`
 
   try {
     let content: string | null = null
@@ -1898,12 +2062,7 @@ IMPORTANT:
         summary: parsed.pro?.sum || '',
         yearsOfExperience: parsed.pro?.yoe || 0
       },
-      skills: {
-        technical: parsed.skills?.tech || [],
-        soft: parsed.skills?.soft || [],
-        tools: parsed.skills?.tools || [],
-        languages: parsed.skills?.languages || []
-      },
+      skills: parsed.skills || {}, // Dynamic categories from AI
       experience: (Array.isArray(parsed.exp) ? parsed.exp : [])
         .filter((exp: any) => exp.c && exp.c.trim().length > 0) // Remove entries with empty company
         .map((exp: any) => ({
@@ -1948,12 +2107,16 @@ IMPORTANT:
       cost: totalCost
     })
 
-    // Validate
+    // Validate and LOG skills structure
+    console.log('🔍 [DEBUG] Hybrid Parser - Mapped skills from AI:', JSON.stringify(mappedData.skills, null, 2))
+
     const validatedData = ParsedCVSchema.parse({
       ...mappedData,
       rawText: cvText,
       parsedAt: Date.now()
     })
+
+    console.log('✅ [DEBUG] Hybrid Parser - Validated skills:', JSON.stringify(validatedData.skills, null, 2))
 
     console.log(`[Hybrid Parser][${parseId}] ✅ Success! Tokens: ${totalTokens}, Cost: $${totalCost.toFixed(6)}`)
 
@@ -1977,6 +2140,81 @@ IMPORTANT:
       method: 'hybrid'
     }
   }
+}
+
+/**
+ * 🛡️ Validate and clean skills from AI response
+ * - Removes duplicate skills across categories
+ * - Trims whitespace
+ * - Removes empty strings and empty categories
+ * - Sorts skills alphabetically within each category
+ */
+function validateAndCleanSkills(skills: Record<string, string[]>, parseId: string): Record<string, string[]> {
+  console.log(`[CV Parsing][${parseId}] 🛡️ Validating and cleaning skills...`)
+
+  // Step 1: Collect all skills and track which category they first appear in
+  const skillToCategory: Map<string, string> = new Map()
+  const categoryToSkills: Record<string, Set<string>> = {}
+
+  // Initialize sets for each category
+  for (const [category, skillList] of Object.entries(skills)) {
+    if (!Array.isArray(skillList)) {
+      console.warn(`[CV Parsing][${parseId}] ⚠️ Category "${category}" is not an array, skipping`)
+      continue
+    }
+
+    categoryToSkills[category] = new Set()
+
+    for (const skill of skillList) {
+      if (typeof skill !== 'string') continue
+
+      const trimmedSkill = skill.trim()
+      if (!trimmedSkill) continue // Skip empty strings
+
+      // Check for duplicates
+      if (skillToCategory.has(trimmedSkill)) {
+        const existingCategory = skillToCategory.get(trimmedSkill)!
+        console.warn(`[CV Parsing][${parseId}] ⚠️ Duplicate skill "${trimmedSkill}" found in "${category}" (already in "${existingCategory}")`)
+        // Don't add to this category, keep first occurrence
+      } else {
+        skillToCategory.set(trimmedSkill, category)
+        categoryToSkills[category]?.add(trimmedSkill)
+      }
+    }
+  }
+
+  // Step 2: Build cleaned skills object
+  const cleanedSkills: Record<string, string[]> = {}
+
+  for (const [category, skillSet] of Object.entries(categoryToSkills)) {
+    const skillsArray = Array.from(skillSet).sort() // Sort alphabetically
+
+    // Skip empty categories
+    if (skillsArray.length === 0) {
+      console.warn(`[CV Parsing][${parseId}] ⚠️ Removed empty category "${category}"`)
+      continue
+    }
+
+    cleanedSkills[category] = skillsArray
+  }
+
+  // Step 3: Log summary
+  const totalCategories = Object.keys(cleanedSkills).length
+  const totalSkills = Object.values(cleanedSkills).reduce((sum, arr) => sum + arr.length, 0)
+
+  console.log(`[CV Parsing][${parseId}] ✅ Skills cleaned:`)
+  console.log(`  - Categories: ${totalCategories}`)
+  console.log(`  - Total unique skills: ${totalSkills}`)
+  console.log(`  - Categories:`, Object.keys(cleanedSkills).join(', '))
+
+  // Warning if too few or too many categories
+  if (totalCategories < 2) {
+    console.warn(`[CV Parsing][${parseId}] ⚠️ Only ${totalCategories} category(s) created. AI should create 4-8 categories.`)
+  } else if (totalCategories > 10) {
+    console.warn(`[CV Parsing][${parseId}] ⚠️ Too many categories (${totalCategories}). Consider merging similar categories.`)
+  }
+
+  return cleanedSkills
 }
 
 /**
@@ -2026,22 +2264,51 @@ export async function parseCVWithAI(cvText: string, provider: string, apiKey: st
   }
   lastParseRequestTime = Date.now()
 
-  const prompt = `Extract to JSON.
+  const prompt = `Extract skills from CV and create DYNAMIC categories.
 
-CV:
+CRITICAL RULES:
+1. NO DUPLICATES: Each skill MUST appear in EXACTLY ONE category. If "JavaScript" is in "Frontend", it CANNOT appear in "Backend" or any other category.
+2. Create 4-8 logical categories based on skill patterns found in the CV
+3. Use descriptive category names (e.g., "Frontend Development" not just "Frontend")
+4. Group RELATED skills that are used together:
+   - React, Vue, Angular, JavaScript, TypeScript, HTML/CSS → "Frontend Development"
+   - Node.js, Python, Java, Express, Django, API Design → "Backend Development"
+   - PostgreSQL, MongoDB, MySQL, Redis → "Databases"
+   - AWS, Docker, Kubernetes, CI/CD → "Cloud & DevOps"
+   - Excel, PowerBI, Tableau, SQL → "Data Analysis Tools"
+   - React Native, Flutter, Swift, Kotlin → "Mobile Development"
+5. If a skill doesn't fit any category → "Other Skills"
+6. Language skills (English, Bangla, etc.) → "Languages" category
+7. DO NOT create single-skill categories (minimum 2 skills per category unless it's "Languages")
+8. DO NOT create too-specific categories (e.g., don't separate "React Hooks" from "React")
+
+ANTI-PATTERNS (What NOT to do):
+❌ Don't repeat tools across categories
+❌ Don't create categories with just 1 skill (except Languages)
+❌ Don't mix languages (English/Bangla) with  skills
+
+CV TEXT:
 ${cvText}
 
+Return ONLY this JSON structure (create YOUR OWN category names dynamically):
 {
-  "personal": {"f":"","l":"","e":"","p":"","city":"","c":""},
+  "personal": {"f":"","l":"","e":"","p":"","city":"","c":"","linkedIn":"","portfolio":"","github":""},
   "pro": {"title":"","sum":"","yoe":0},
-  "skills": {"tech":[],"soft":[],"tools":[]},
+  "skills": {
+    "YOUR_CATEGORY_NAME": ["skill1", "skill2", "skill3"],
+    "ANOTHER_CATEGORY": ["skill4", "skill5"]
+  },
   "exp": [{"id":"","r":"","c":"","s":"","e":"","current":false,"high":[],"sk":[]}],
   "proj": [{"id":"","n":"","d":"","tech":[],"url":"","high":[]}],
   "edu": [{"id":"","deg":"","sch":"","f":"","y":""}]
 }
 
 Dates: "Jan 2020". YOE: number. JSON only.
-IMPORTANT: Ensure all string values are properly escaped (especially double quotes inside strings). Never include markdown formatting.`
+IMPORTANT:
+- Ensure all string values are properly escaped (especially double quotes inside strings)
+- Never include markdown formatting
+- Create YOUR OWN category names based on the CV content
+- DO NOT use the placeholder names "YOUR_CATEGORY_NAME" or "ANOTHER_CATEGORY"`
 
   let content: string | null = null
   let jsonString: string = ''
@@ -2157,6 +2424,10 @@ IMPORTANT: Ensure all string values are properly escaped (especially double quot
     const parsed = JSON.parse(jsonString)
     console.log('[CV Parsing] Parsed CV:', parsed)
 
+    // 🎯 Validate and clean skills (remove duplicates, empty strings, etc.)
+    const cleanedSkills = validateAndCleanSkills(parsed.skills || {}, parseId)
+    parsed.skills = cleanedSkills
+
     // 🎯 Map abbreviated field names to full field names (for token-optimized prompts)
     const mappedData: any = {
       personal: {
@@ -2175,12 +2446,7 @@ IMPORTANT: Ensure all string values are properly escaped (especially double quot
         summary: parsed.pro?.sum || '',
         yearsOfExperience: parsed.pro?.yoe || 0,
       },
-      skills: {
-        technical: parsed.skills?.tech || [],
-        soft: parsed.skills?.soft || [],
-        tools: parsed.skills?.tools || [],
-        languages: parsed.skills?.languages || [],
-      },
+      skills: parsed.skills || {}, // Dynamic categories from AI
       // 🎯 Map experience array fields (r→role, c→company, s→startDate, e→endDate, high→highlights, sk→skills)
       experience: (Array.isArray(parsed.exp) ? parsed.exp : []).map((exp: any) => ({
         id: exp.id || '',
@@ -2262,14 +2528,30 @@ export function generateRoleBasedCV(parsedCV: ParsedCV, roleId: string): ParsedC
   const template = DEFAULT_ROLE_TEMPLATES[roleId] || DEFAULT_ROLE_TEMPLATES.fullstack
   const roleCV: ParsedCV = JSON.parse(JSON.stringify(parsedCV))
 
-  const allSkills = [...roleCV.skills.technical, ...roleCV.skills.tools]
-  roleCV.skills.technical = allSkills
+  // 🎯 Flatten all skills from dynamic categories
+  const allSkills: string[] = []
+  Object.values(roleCV.skills).forEach(skillArray => {
+    if (Array.isArray(skillArray)) {
+      allSkills.push(...skillArray)
+    }
+  })
+
+  // Remove duplicates
+  const uniqueSkills = [...new Set(allSkills)]
+
+  // Sort by emphasis and filter out de-emphasized skills
+  const sortedSkills = uniqueSkills
     .sort((a, b) => {
       const aEmphasis = template.emphasize.some(e => a.toLowerCase().includes(e.toLowerCase())) ? 1 : 0
       const bEmphasis = template.emphasize.some(e => b.toLowerCase().includes(e.toLowerCase())) ? 1 : 0
       return bEmphasis - aEmphasis
     })
     .filter(s => !template.deEmphasize.some(d => s.toLowerCase().includes(d.toLowerCase())))
+
+  // Put all sorted skills into a single "All Skills" category for role-based CV
+  roleCV.skills = {
+    "Skills": sortedSkills
+  }
 
   roleCV.experience = roleCV.experience.sort((a, b) => {
     const aRelevance = a.skills.some(s => template.emphasize.some(e => s.toLowerCase().includes(e.toLowerCase()))) ? 1 : 0
@@ -2300,3 +2582,10 @@ chrome.runtime.onInstalled.addListener(() => {
     },
   })
 })
+
+// ============================================
+// CV WORKFLOW LISTENER
+// ============================================
+
+// Initialize CV workflow message listener
+setupCVWorkflowListener()

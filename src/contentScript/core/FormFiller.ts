@@ -256,7 +256,11 @@ export class FormFiller {
 
       const textarea = field as HTMLTextAreaElement
       textarea.focus()
-      textarea.value = value
+
+      // Convert literal \n to actual newlines for cover letters and long text
+      const processedValue = this.convertLineBreaks(value)
+      textarea.value = processedValue
+
       textarea.dispatchEvent(new Event('input', { bubbles: true }))
       textarea.dispatchEvent(new Event('change', { bubbles: true }))
 
@@ -268,6 +272,17 @@ export class FormFiller {
       console.error(`[FormFiller] Error filling ${fieldType}:`, error)
       return false
     }
+  }
+
+  /**
+   * Convert literal \n to actual line breaks
+   */
+  private convertLineBreaks(text: string): string {
+    // Convert escaped newlines to actual newlines
+    return text
+      .replace(/\\n/g, '\n')           // \n → actual newline
+      .replace(/\\r\\n/g, '\r\n')       // \r\n → actual CRLF
+      .replace(/\\r/g, '\r')           // \r → actual carriage return
   }
 
   /**
@@ -401,7 +416,11 @@ export class FormFiller {
 
     const textarea = field as HTMLTextAreaElement
     textarea.focus()
-    textarea.value = value
+
+    // Convert literal \n to actual newlines for cover letters and long text
+    const processedValue = this.convertLineBreaks(value)
+    textarea.value = processedValue
+
     textarea.dispatchEvent(new Event('input', { bubbles: true }))
     textarea.dispatchEvent(new Event('change', { bubbles: true }))
 
@@ -447,7 +466,12 @@ export class FormFiller {
           if (input.tagName === 'INPUT') {
             (input as HTMLInputElement).value = answer
           } else if (input.tagName === 'TEXTAREA') {
-            (input as HTMLTextAreaElement).value = answer
+            // Convert literal \n to actual newlines for textareas
+            const textarea = input as HTMLTextAreaElement
+            let finalValue = answer
+            finalValue = finalValue.split('\\n').join('\n')
+            finalValue = finalValue.split('\\r\\n').join('\r\n')
+            textarea.value = finalValue
           }
           input.dispatchEvent(new Event('input', { bubbles: true }))
           input.dispatchEvent(new Event('change', { bubbles: true }))

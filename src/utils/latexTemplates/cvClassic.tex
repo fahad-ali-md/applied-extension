@@ -1,0 +1,64 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{xcolor}
+
+% Custom formatting
+\pagestyle{empty}
+\setlist[itemize]{noitemsep, topsep=0pt, leftmargin=1.2em}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    pdftitle={{FULL_NAME} - CV},
+    pdfauthor={{FULL_NAME}}
+}
+
+% Section formatting
+\titleformat{\section}{
+  \large\bfseries\uppercase
+}{}{0em}{}[\titlerule]
+
+\begin{document}
+
+% Header Section
+\begin{center}
+  {\huge\textbf{{FULL_NAME}}}\\[0.3cm]
+  {{TITLE}}\\[0.4cm]
+  \footnotesize
+  {{PHONE_LINE}}\\
+  {{EMAIL_LINE}}\\
+  {{LINKS_LINE}}
+\end{center}
+
+\vspace{0.3cm}
+
+% Summary Section
+{{SUMMARY_SECTION}}
+
+% Experience Section
+\section{Experience}
+{{EXPERIENCE_SECTION}}
+
+% Education Section
+\section{Education}
+{{EDUCATION_SECTION}}
+
+% Projects Section
+{{PROJECTS_SECTION}}
+
+% Skills Section
+\section{Skills}
+{{SKILLS_SECTION}}
+
+% Project Section
+\section{Projects}
+{{PROJECT_SECTION}}
+
+% Certifications Section (if exists)
+\section{Certificate}
+{{CERTIFICATIONS_SECTION}}
+
+\end{document}

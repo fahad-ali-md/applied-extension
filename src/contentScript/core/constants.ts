@@ -23,7 +23,7 @@ export const FIELD_MAPPINGS: Record<string, string[]> = {
   currentTitle: ['title', 'jobTitle', 'job_title', 'position', 'currentTitle', 'current_title', 'role'],
   company: ['company', 'employer', 'organization', 'currentCompany', 'current_company'],
   experience: ['experience', 'yearsExperience', 'years_experience', 'yoe', 'exp'],
-  skills: ['skills', 'keySkills', 'key_skills', 'technicalSkills', 'technical_skills'],
+  skills: ['skills', 'keySkills', 'key_skills', 'Skills', '_skills'],
   linkedIn: ['linkedin', 'linkedIn', 'linkedinUrl', 'linkedin_url', 'linkedin-profile'],
   portfolio: ['portfolio', 'website', 'personalWebsite', 'github', 'githubUrl'],
 

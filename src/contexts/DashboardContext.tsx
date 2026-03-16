@@ -7,8 +7,8 @@ import { createContext, useContext, useState, useMemo, ReactNode } from 'react'
 
 // --- Navigation Context ---
 interface NavContextType {
-  activeNav: 'cv' | 'api-keys' | 'preferences' | 'history'
-  setActiveNav: (nav: 'cv' | 'api-keys' | 'preferences' | 'history') => void
+  activeNav: 'cv' | 'api-keys' | 'preferences' | 'history' | 'generate-cv'
+  setActiveNav: (nav: 'cv' | 'api-keys' | 'preferences' | 'history' | 'generate-cv') => void
 }
 
 const NavContext = createContext<NavContextType | undefined>(undefined)
@@ -47,7 +47,7 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
 
 // Separate provider for each state slice
 const NavProvider = ({ children }: { children: ReactNode }) => {
-  const [activeNav, setActiveNav] = useState<'cv' | 'api-keys' | 'preferences' | 'history'>('cv')
+  const [activeNav, setActiveNav] = useState<'cv' | 'api-keys' | 'preferences' | 'history' | 'generate-cv'>('cv')
 
   // Use useMemo to prevent unnecessary re-renders while keeping value updated
   const value = useMemo(() => ({
@@ -63,7 +63,7 @@ const NavProvider = ({ children }: { children: ReactNode }) => {
 }
 
 const PlanProvider = ({ children }: { children: ReactNode }) => {
-  const [planUsage, setPlanUsage] = useState({ used: 650, total: 1000 })
+  const [planUsage, setPlanUsage] = useState({ used: 0, total: 1000 })
 
   const updatePlanUsage = (used: number) => {
     setPlanUsage(prev => ({ ...prev, used }))

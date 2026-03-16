@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, DragEvent } from 'react'
 import { DashboardProvider, useNav, usePlan, useSync } from '../contexts/DashboardContext'
 import { extractTextFromPDF, isPDFFile, isPDFContent } from '../utils/pdfExtractor'
+import { CVGenerator } from '../popup/components/CVGenerator'
 import './Options.css'
 
 // Storage keys
@@ -67,12 +68,7 @@ interface ParsedCV {
     summary: string
     yearsOfExperience: number
   }
-  skills: {
-    technical: string[]
-    soft: string[]
-    tools: string[]
-    languages: string[]
-  }
+  skills: Record<string, string[]> // Dynamic categories
   experience: WorkExperience[]
   projects: Project[]
   education: Education[]
@@ -98,6 +94,7 @@ const Sidebar = () => {
 
   const navItems = [
     { id: 'cv' as const, icon: 'person', label: 'CV Profile' },
+    { id: 'generate-cv' as const, icon: 'description', label: 'Generate CV' },
     { id: 'api-keys' as const, icon: 'key', label: 'API Keys' },
   ]
 
@@ -165,13 +162,19 @@ const CVProfileView = ({ parsedCV, setParsedCV, personalInfo, setPersonalInfo, i
 
   // Local state for editable data
   const [editableCV, setEditableCV] = useState<ParsedCV | null>(null)
-  const [editingSkills, setEditingSkills] = useState(parsedCV?.skills || null)
-  const [newSkillInputs, setNewSkillInputs] = useState({
-    technical: '',
-    tools: '',
-    soft: '',
-    languages: ''
-  })
+  const [editingSkills, setEditingSkills] = useState<Record<string, string[]> | null>(parsedCV?.skills || null)
+  const [newSkillInputs, setNewSkillInputs] = useState<Record<string, string>>({})
+
+  // Initialize newSkillInputs when editingSkills changes
+  useEffect(() => {
+    if (editingSkills && isEditing) {
+      const inputs: Record<string, string> = {}
+      Object.keys(editingSkills).forEach(category => {
+        inputs[category] = ''
+      })
+      setNewSkillInputs(inputs)
+    }
+  }, [editingSkills, isEditing])
 
   // Update editableCV when parsedCV changes
   useEffect(() => {
@@ -265,13 +268,13 @@ const CVProfileView = ({ parsedCV, setParsedCV, personalInfo, setPersonalInfo, i
   }
 
   // Add skill
-  const addSkill = (category: 'technical' | 'soft' | 'tools' | 'languages') => {
+  const addSkill = (category: string) => {
     if (!editingSkills) return
-    const inputValue = newSkillInputs[category].trim()
-    if (inputValue && !editingSkills[category].includes(inputValue)) {
+    const inputValue = newSkillInputs[category]?.trim() || ''
+    if (inputValue && !editingSkills[category]?.includes(inputValue)) {
       setEditingSkills({
         ...editingSkills,
-        [category]: [...editingSkills[category], inputValue]
+        [category]: [...(editingSkills[category] || []), inputValue]
       })
       setNewSkillInputs({
         ...newSkillInputs,
@@ -281,11 +284,11 @@ const CVProfileView = ({ parsedCV, setParsedCV, personalInfo, setPersonalInfo, i
   }
 
   // Remove skill
-  const removeSkill = (category: 'technical' | 'soft' | 'tools' | 'languages', skillToRemove: string) => {
+  const removeSkill = (category: string, skillToRemove: string) => {
     if (!editingSkills) return
     setEditingSkills({
       ...editingSkills,
-      [category]: editingSkills[category].filter(s => s !== skillToRemove)
+      [category]: editingSkills[category]?.filter((s: string) => s !== skillToRemove) || []
     })
   }
 
@@ -581,420 +584,73 @@ const CVProfileView = ({ parsedCV, setParsedCV, personalInfo, setPersonalInfo, i
               <h3>Skills</h3>
             </div>
 
-            {/* Technical Skills */}
-            {editingSkills?.technical && (
-              <div style={{ marginBottom: '1.5rem' }}>
-                <label className="sub-header" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--primary)', marginBottom: '0.75rem', display: 'block' }}>
-                  Technical ({editingSkills.technical.length})
-                </label>
-                <div className="skills-container">
-                  {editingSkills.technical.map((skill) => (
-                    <span key={skill} className="skill-tag">
-                      {skill}
+            {/* Dynamic Skills Categories */}
+            {editingSkills && Object.keys(editingSkills).length > 0 && (
+              <>
+                {Object.entries(editingSkills).map(([category, skills]) => (
+                  skills.length > 0 && (
+                    <div key={category} style={{ marginBottom: '1.5rem' }}>
+                      <label className="sub-header" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--primary)', marginBottom: '0.75rem', display: 'block' }}>
+                        {category} ({skills.length})
+                      </label>
+                      <div className="skills-container">
+                        {skills.map((skill) => (
+                          <span key={skill} className="skill-tag">
+                            {skill}
+                            {isEditing && (
+                              <button
+                                onClick={() => removeSkill(category, skill)}
+                                style={{
+                                  marginLeft: '6px',
+                                  background: 'none',
+                                  border: 'none',
+                                  color: '#ef4444',
+                                  cursor: 'pointer',
+                                  fontSize: '16px',
+                                  fontWeight: 'bold',
+                                  padding: 0
+                                }}
+                                title="Remove skill"
+                              >
+                                ×
+                              </button>
+                            )}
+                          </span>
+                        ))}
+                      </div>
                       {isEditing && (
-                        <button
-                          onClick={() => removeSkill('technical', skill)}
-                          style={{
-                            marginLeft: '6px',
-                            background: 'none',
-                            border: 'none',
-                            color: '#ef4444',
-                            cursor: 'pointer',
-                            fontSize: '16px',
-                            fontWeight: 'bold',
-                            padding: 0
-                          }}
-                          title="Remove skill"
-                        >
-                          ×
-                        </button>
+                        <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
+                          <input
+                            type="text"
+                            placeholder={`Add ${category.toLowerCase()} skill...`}
+                            value={newSkillInputs[category] || ''}
+                            onChange={(e) => setNewSkillInputs({ ...newSkillInputs, [category]: e.target.value })}
+                            onKeyPress={(e) => {
+                              if (e.key === 'Enter') {
+                                addSkill(category)
+                              }
+                            }}
+                            className="input-field"
+                            style={{ flex: 1, padding: '0.5rem' }}
+                          />
+                          <button
+                            onClick={() => addSkill(category)}
+                            className="btn-outline"
+                            style={{ padding: '0.5rem 1rem' }}
+                          >
+                            Add
+                          </button>
+                        </div>
                       )}
-                    </span>
-                  ))}
-                </div>
-                {isEditing && (
-                  <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
-                    <input
-                      type="text"
-                      placeholder="Add technical skill..."
-                      value={newSkillInputs.technical}
-                      onChange={(e) => setNewSkillInputs({ ...newSkillInputs, technical: e.target.value })}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          addSkill('technical')
-                        }
-                      }}
-                      className="input-field"
-                      style={{ flex: 1, padding: '0.5rem' }}
-                    />
-                    <button
-                      onClick={() => addSkill('technical')}
-                      className="btn-outline"
-                      style={{ padding: '0.5rem 1rem' }}
-                    >
-                      Add
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Tools */}
-            {editingSkills?.tools && (
-              <div style={{ marginBottom: '1.5rem' }}>
-                <label className="sub-header" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--primary)', marginBottom: '0.75rem', display: 'block' }}>
-                  Tools ({editingSkills.tools.length})
-                </label>
-                <div className="skills-container">
-                  {editingSkills.tools.map((skill) => (
-                    <span key={skill} className="skill-tag">
-                      {skill}
-                      {isEditing && (
-                        <button
-                          onClick={() => removeSkill('tools', skill)}
-                          style={{
-                            marginLeft: '6px',
-                            background: 'none',
-                            border: 'none',
-                            color: '#ef4444',
-                            cursor: 'pointer',
-                            fontSize: '16px',
-                            fontWeight: 'bold',
-                            padding: 0
-                          }}
-                          title="Remove skill"
-                        >
-                          ×
-                        </button>
-                      )}
-                    </span>
-                  ))}
-                </div>
-                {isEditing && (
-                  <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
-                    <input
-                      type="text"
-                      placeholder="Add tool..."
-                      value={newSkillInputs.tools}
-                      onChange={(e) => setNewSkillInputs({ ...newSkillInputs, tools: e.target.value })}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          addSkill('tools')
-                        }
-                      }}
-                      className="input-field"
-                      style={{ flex: 1, padding: '0.5rem' }}
-                    />
-                    <button
-                      onClick={() => addSkill('tools')}
-                      className="btn-outline"
-                      style={{ padding: '0.5rem 1rem' }}
-                    >
-                      Add
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Soft Skills */}
-            {editingSkills?.soft && (
-              <div style={{ marginBottom: '1.5rem' }}>
-                <label className="sub-header" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--primary)', marginBottom: '0.75rem', display: 'block' }}>
-                  Soft Skills ({editingSkills.soft.length})
-                </label>
-                <div className="skills-container">
-                  {editingSkills.soft.map((skill) => (
-                    <span key={skill} className="skill-tag">
-                      {skill}
-                      {isEditing && (
-                        <button
-                          onClick={() => removeSkill('soft', skill)}
-                          style={{
-                            marginLeft: '6px',
-                            background: 'none',
-                            border: 'none',
-                            color: '#ef4444',
-                            cursor: 'pointer',
-                            fontSize: '16px',
-                            fontWeight: 'bold',
-                            padding: 0
-                          }}
-                          title="Remove skill"
-                        >
-                          ×
-                        </button>
-                      )}
-                    </span>
-                  ))}
-                </div>
-                {isEditing && (
-                  <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
-                    <input
-                      type="text"
-                      placeholder="Add soft skill..."
-                      value={newSkillInputs.soft}
-                      onChange={(e) => setNewSkillInputs({ ...newSkillInputs, soft: e.target.value })}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          addSkill('soft')
-                        }
-                      }}
-                      className="input-field"
-                      style={{ flex: 1, padding: '0.5rem' }}
-                    />
-                    <button
-                      onClick={() => addSkill('soft')}
-                      className="btn-outline"
-                      style={{ padding: '0.5rem 1rem' }}
-                    >
-                      Add
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Languages */}
-            {editingSkills?.languages && (
-              <div>
-                <label className="sub-header" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--primary)', marginBottom: '0.75rem', display: 'block' }}>
-                  Languages ({editingSkills.languages.length})
-                </label>
-                <div className="skills-container">
-                  {editingSkills.languages.map((skill) => (
-                    <span key={skill} className="skill-tag">
-                      {skill}
-                      {isEditing && (
-                        <button
-                          onClick={() => removeSkill('languages', skill)}
-                          style={{
-                            marginLeft: '6px',
-                            background: 'none',
-                            border: 'none',
-                            color: '#ef4444',
-                            cursor: 'pointer',
-                            fontSize: '16px',
-                            fontWeight: 'bold',
-                            padding: 0
-                          }}
-                          title="Remove skill"
-                        >
-                          ×
-                        </button>
-                      )}
-                    </span>
-                  ))}
-                </div>
-                {isEditing && (
-                  <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
-                    <input
-                      type="text"
-                      placeholder="Add language..."
-                      value={newSkillInputs.languages}
-                      onChange={(e) => setNewSkillInputs({ ...newSkillInputs, languages: e.target.value })}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          addSkill('languages')
-                        }
-                      }}
-                      className="input-field"
-                      style={{ flex: 1, padding: '0.5rem' }}
-                    />
-                    <button
-                      onClick={() => addSkill('languages')}
-                      className="btn-outline"
-                      style={{ padding: '0.5rem 1rem' }}
-                    >
-                      Add
-                    </button>
-                  </div>
-                )}
-              </div>
+                    </div>
+                  )
+                ))}
+              </>
             )}
           </section>
 
-          {/* Work Experience */}
-          {editableCV?.experience && editableCV.experience.length > 0 && (
-            <section className="glass-card section-card">
-              <div className="section-header">
-                <Icon name="work" className="section-icon" />
-                <h3>Work Experience</h3>
-              </div>
-              {isEditing ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                  {editableCV.experience.map((exp, expIndex) => (
-                    <div key={exp.id} style={{
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      borderRadius: '0.5rem',
-                      padding: '1rem',
-                      background: 'rgba(15, 23, 42, 0.5)'
-                    }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                        <h4 style={{ margin: 0 }}>Experience #{expIndex + 1}</h4>
-                        <button
-                          onClick={() => {
-                            if (!editableCV) return
-                            setEditableCV({
-                              ...editableCV,
-                              experience: editableCV.experience.filter(e => e.id !== exp.id)
-                            })
-                          }}
-                          className="btn-outline"
-                          style={{ padding: '0.25rem 0.75rem', fontSize: '0.875rem', background: 'rgba(239, 68, 68, 0.2)', border: '1px solid #ef4444', color: '#ef4444' }}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                      <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-                        <div className="input-group">
-                          <label>Role</label>
-                          <input
-                            type="text"
-                            value={exp.role}
-                            onChange={(e) => {
-                              if (!editableCV) return
-                              const newExperience = [...editableCV.experience]
-                              newExperience[expIndex] = { ...exp, role: e.target.value }
-                              setEditableCV({ ...editableCV, experience: newExperience })
-                            }}
-                            className="input-field"
-                          />
-                        </div>
-                        <div className="input-group">
-                          <label>Company</label>
-                          <input
-                            type="text"
-                            value={exp.company}
-                            onChange={(e) => {
-                              if (!editableCV) return
-                              const newExperience = [...editableCV.experience]
-                              newExperience[expIndex] = { ...exp, company: e.target.value }
-                              setEditableCV({ ...editableCV, experience: newExperience })
-                            }}
-                            className="input-field"
-                          />
-                        </div>
-                        <div className="input-group">
-                          <label>Start Date</label>
-                          <input
-                            type="text"
-                            value={exp.startDate}
-                            onChange={(e) => {
-                              if (!editableCV) return
-                              const newExperience = [...editableCV.experience]
-                              newExperience[expIndex] = { ...exp, startDate: e.target.value }
-                              setEditableCV({ ...editableCV, experience: newExperience })
-                            }}
-                            className="input-field"
-                            placeholder="e.g., Jan 2020"
-                          />
-                        </div>
-                        <div className="input-group">
-                          <label>End Date</label>
-                          <input
-                            type="text"
-                            value={exp.endDate || ''}
-                            onChange={(e) => {
-                              if (!editableCV) return
-                              const newExperience = [...editableCV.experience]
-                              newExperience[expIndex] = { ...exp, endDate: e.target.value || undefined }
-                              setEditableCV({ ...editableCV, experience: newExperience })
-                            }}
-                            className="input-field"
-                            placeholder="Leave blank for current"
-                          />
-                        </div>
-                      </div>
-                      <div className="input-group" style={{ marginTop: '1rem' }}>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={exp.current}
-                            onChange={(e) => {
-                              if (!editableCV) return
-                              const newExperience = [...editableCV.experience]
-                              newExperience[expIndex] = { ...exp, current: e.target.checked }
-                              setEditableCV({ ...editableCV, experience: newExperience })
-                            }}
-                            style={{ marginRight: '0.5rem' }}
-                          />
-                          Current Position
-                        </label>
-                      </div>
-                      <div className="input-group" style={{ marginTop: '1rem' }}>
-                        <label>Highlights (one per line)</label>
-                        <textarea
-                          value={exp.highlights.join('\n')}
-                          onChange={(e) => {
-                            if (!editableCV) return
-                            const newExperience = [...editableCV.experience]
-                            newExperience[expIndex] = {
-                              ...exp,
-                              highlights: e.target.value.split('\n').filter(h => h.trim())
-                            }
-                            setEditableCV({ ...editableCV, experience: newExperience })
-                          }}
-                          className="input-field"
-                          rows={4}
-                          style={{ minHeight: '100px', resize: 'vertical' }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                  <button
-                    onClick={() => {
-                      if (!editableCV) return
-                      const newExp: WorkExperience = {
-                        id: `exp-${Date.now()}`,
-                        role: '',
-                        company: '',
-                        startDate: '',
-                        endDate: '',
-                        current: false,
-                        highlights: [],
-                        skills: [],
-                        visibleInCV: true
-                      }
-                      setEditableCV({
-                        ...editableCV,
-                        experience: [...editableCV.experience, newExp]
-                      })
-                    }}
-                    className="btn-outline"
-                    style={{ borderStyle: 'dashed' }}
-                  >
-                    + Add Experience
-                  </button>
-                </div>
-              ) : (
-                <div className="timeline">
-                  {editableCV.experience.map((exp) => (
-                    <div key={exp.id} className="timeline-item">
-                      <div className={`timeline-dot ${exp.current ? 'active' : ''}`} />
-                      <div className="timeline-content">
-                        <div className="timeline-header-row">
-                          <div>
-                            <h4>{exp.role}</h4>
-                            <p className={exp.current ? 'text-primary' : 'text-slate-400'}>
-                              {exp.company} • {exp.current ? 'Full-time' : 'Contract'}
-                            </p>
-                          </div>
-                          <span className="timeline-date">{exp.startDate} — {exp.endDate || 'Present'}</span>
-                        </div>
-                        <p className="timeline-description">
-                          {exp.highlights.join(' ')}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          )}
-
-          {/* Projects */}
-          {editableCV?.projects && editableCV.projects.length > 0 && (
+        {/* Projects */}
+        {editableCV?.projects && editableCV.projects.length > 0 && (
             <section className="glass-card section-card">
               <div className="section-header">
                 <Icon name="rocket_launch" className="section-icon" />
@@ -1388,8 +1044,9 @@ const APIKeysView = ({ apiKeys, setApiKeys, settings, setSettings }: {
             { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
             { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
           ] : selectedProvider === 'openrouter' ? [
-            { id: 'openrouter/free', name: 'Free Models Router (Auto)' },
             { id: 'nvidia/nemotron-3-nano-30b-a3b:free', name: 'NVIDIA Nemotron 30B (Free)' },
+            { id: 'arcee-ai/trinity-large-preview:free', name: 'Arcee Trinity Large (Free)' },
+            { id: 'liquid/lfm-2.5-1.2b-instruct:free', name: 'LFM 2.5 Instruct (Free)' },
           ] : [
             { id: 'glm-5', name: 'GLM-5' },
           ]
@@ -2089,11 +1746,11 @@ const OptionsContent = () => {
   useEffect(() => {
     const loadSavedData = () => {
       // Load parsed CV
-      chrome.runtime.sendMessage({ action: 'getParsedCV' }, (response: { success: boolean; data: ParsedCV }) => {
-        if (response?.success && response.data) {
-          console.log('[Options] Loaded parsed CV:', response.data)
-          setParsedCV(response.data)
-          setPersonalInfo(response.data.personal)
+      chrome.runtime.sendMessage({ action: 'getParsedCV' }, (response: { success: boolean; data: ParsedCV; original: ParsedCV }) => {
+        if (response?.success && response.original) {
+          console.log('[Options] Loaded parsed CV:', response.original)
+          setParsedCV(response.original)
+          setPersonalInfo(response.original.personal)
           setUploadState('complete')
           updateSyncStatus()
         }
@@ -2270,6 +1927,20 @@ const OptionsContent = () => {
             settings={settings}
             setSettings={setSettings}
           />
+        )
+
+      case 'generate-cv':
+        return (
+          <div className="generate-cv-view">
+            <CVGenerator
+              filename="cv.pdf"
+              showDownloadButton={true}
+              showUploadButton={false}
+              onGenerateComplete={(result) => {
+                console.log('CV Generation completed:', result)
+              }}
+            />
+          </div>
         )
 
       default:

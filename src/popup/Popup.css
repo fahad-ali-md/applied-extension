@@ -51,6 +51,17 @@
   padding: 1rem;
 }
 
+/* Tab Content */
+.popup-tab-content {
+  width: 100%;
+}
+
+.popup-tab-content .cv-generator {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  padding: 16px;
+}
+
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 4px;

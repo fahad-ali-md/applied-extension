@@ -6,8 +6,23 @@
 
 import { FormFiller } from '../core/FormFiller'
 import { FieldDetector } from '../core/FieldDetector'
+// import { fieldVisualizer } from '../core/FieldVisualizer' // DISABLED: Prevents visual clutter on webpages
 import { calculateFieldPriority } from '../utils/formHelpers'
-import { success } from 'zod'
+import { any, success } from 'zod'
+
+// Inject FieldVisualizer CSS
+// DISABLED: Prevents visual clutter on webpages
+/*
+const injectFieldVisualizerCSS = () => {
+  if (document.getElementById('field-visualizer-css')) return
+
+  const link = document.createElement('link')
+  link.id = 'field-visualizer-css'
+  link.rel = 'stylesheet'
+  link.href = chrome.runtime.getURL('contentScript/core/FieldVisualizer.css')
+  document.head.appendChild(link)
+}
+*/
 
 // Type for RawField from formFieldExtractorV2 (has shortened properties)
 interface RawField {
@@ -27,6 +42,9 @@ interface FieldWithPriority extends RawField {
 const formFiller = new FormFiller()
 
 export function setupMessageHandlers(): void {
+  // Inject visualizer CSS on setup
+  // injectFieldVisualizerCSS() // DISABLED: Prevents visual clutter on webpages
+
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Ping handler
     if (request.action === 'ping') {
@@ -123,6 +141,18 @@ function handleFillFormWithMappings(request: any, sendResponse: (response?: any)
       const { mappings } = request
       console.log('[ContentScript] Filling form with AI mappings:', mappings.length)
 
+      // Show visual indicators on all detected fields
+      // DISABLED: Prevents visual clutter on webpages
+      /*
+      const fieldsToShow = mappings.map((m: any) => ({
+        id: m.fieldId,
+        name: m.fieldName,
+        label: m.detectedAs
+      }))
+      fieldVisualizer.showFieldIndicators(fieldsToShow)
+      fieldVisualizer.showProgressCounter(mappings.length)
+      */
+
       let filledCount = 0
       let failedCount = 0
       const results: { success: string[]; failed: string[] } = {
@@ -135,6 +165,16 @@ function handleFillFormWithMappings(request: any, sendResponse: (response?: any)
           action: 'formFillProgressUpdate',
           field: { fieldName, status, label }
         }).catch(err => console.log('[Progress] Failed to send:', err))
+
+        // Update on-page visual
+        // DISABLED: Prevents visual clutter on webpages
+        // fieldVisualizer.updateFieldStatus(fieldName, fieldName, status)
+
+        // Update progress counter
+        if (status === 'filled' || status === 'failed') {
+          const total = filledCount + failedCount + 1
+          // fieldVisualizer.updateProgress(filledCount, mappings.length)
+        }
       }
 
       for (const mapping of mappings) {
@@ -522,7 +562,8 @@ function handleDetectFields(sendResponse: (response?: any) => void): void {
         name: (f as HTMLInputElement).name || '',
         id: f.id || '',
         placeholder: (f as HTMLInputElement).placeholder || '',
-        textOrValue: valueOrText
+        textOrValue: valueOrText,
+        label: detector.findLabelForField(f) || ''
       };
     })
 

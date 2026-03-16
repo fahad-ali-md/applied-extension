@@ -26,9 +26,6 @@ export const DetectedFields: React.FC<DetectedFieldsProps> = ({
     )
   }
 
-  // 🎯 Create a map of field progress for quick lookup
-  const progressMap = new Map(fieldProgress.map(f => [f.label, f.status]))
-
   // 🎯 Always use detected fields as the source of truth for display
   // This ensures we show all 12 detected fields even if AI mapping returns 0
   let displayFields: any[] = []
@@ -51,18 +48,70 @@ export const DetectedFields: React.FC<DetectedFieldsProps> = ({
     }))
   }
 
+  // 🎯 Create a map of field progress for quick lookup
+  // Use both fieldName and label as keys for better matching
+  const progressMap = new Map<string, 'filled' | 'failed' | 'pending' | undefined>()
+  fieldProgress.forEach(f => {
+    progressMap.set(f.label, f.status)
+    progressMap.set(f.fieldName, f.status)
+  })
+
+  console.log(progressMap, fieldProgress)
+  // 🎯 Calculate progress stats
+  const filledCount = fieldProgress.filter(f => f.status === 'filled').length
+  const failedCount = fieldProgress.filter(f => f.status === 'failed').length
+  const totalCount = displayFields.length
+  const progressPercent = totalCount > 0 ? Math.round((filledCount / totalCount) * 100) : 0
+
+  console.log("fieldProgress", fieldProgress)
+
   return (
     <div className="popup-fields-section">
       <div className="popup-fields-header">
-        <h4>Detected fields</h4>
-        <span className="popup-fields-count">{displayFields.length} fields detected</span>
+        <h4>Detected field</h4>
+        {fieldProgress.length > 0 ? (
+          <div className="popup-progress-badge">
+            <span className="popup-progress-count">{filledCount}/{totalCount}</span>
+            <span className="popup-progress-percent">{progressPercent}%</span>
+          </div>
+        ) : (
+          <span className="popup-fields-count">{displayFields.length} fields detected</span>
+        )}
       </div>
+
+      {/* Progress bar when filling */}
+      {isFilling && totalCount > 0 && (
+        <div className="popup-progress-bar">
+          <div
+            className="popup-progress-fill"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+      )}
 
       <div className="popup-fields-list">
         {displayFields.slice(0, 12).map((field, i) => {
           // Handle both DetectedField and progress field types
           const label = 'label' in field ? field.label : fieldLabel(field as any)
-          const status = progressMap.get(label)
+          const fieldName = 'name' in field ? field.name : field.id || field.name
+
+          // Try multiple ways to find the status
+          let status = progressMap.get(label)
+          if (!status) {
+            status = progressMap.get(fieldName)
+          }
+          if (!status) {
+            // Try matching by any field in fieldProgress
+            const match = fieldProgress.find(f =>
+              f.fieldName === fieldName ||
+              f.label === label ||
+              f.label === fieldName ||
+              f.fieldName === label
+            )
+            status = match?.status
+          }
+
+          console.log("Field:", { label, fieldName, status })
 
           return (
             <div key={i} className={`popup-field-item ${status ? `popup-field-${status}` : ''}`}>
@@ -72,11 +121,11 @@ export const DetectedFields: React.FC<DetectedFieldsProps> = ({
                 </span>
                 <span className={status === 'filled' ? 'popup-field-label-filled' : ''}>{label}</span>
               </div>
-              <span className="material-symbols-outlined popup-field-check">
-                {status === 'filled' && 'check_box'}
-                {status === 'failed' && 'error'}
-                {!status && 'check_box_outline_blank'}
-              </span>
+              {status && (
+                <span className="material-symbols-outlined popup-field-check">
+                  {status === 'filled' ? 'check_box' : 'error'}
+                </span>
+              )}
             </div>
           )
         })}

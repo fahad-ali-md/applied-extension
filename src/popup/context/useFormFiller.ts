@@ -97,11 +97,15 @@ export const useFormFiller = () => {
       setStatus(`Mapping ${fields.length} fields with AI (1 request)...`)
 
       const getAIResponse = async (prompt: string) => {
+        console.log('[useFormFiller] Sending prompt to background askAI...', prompt)
         const response = await chrome.runtime.sendMessage({ action: 'askAI', prompt })
+        console.log('[useFormFiller] Received response from background askAI:', response)
         return response?.data
       }
 
+      console.log('[useFormFiller] Starting optimizedBatchMap with fields:', fields)
       const mappings = await optimizedBatchMap(fields, cvData, getAIResponse)
+      console.log('[useFormFiller] Finished optimizedBatchMap, mapping result:', mappings)
 
       if (mappings.length === 0) {
         setStatus('AI could not map any fields. Check your CV data.')

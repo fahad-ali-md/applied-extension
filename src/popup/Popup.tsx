@@ -6,7 +6,6 @@ import {
   FillCard,
   DetectedFields,
   Navigation,
-  TestScan,
   fieldIcon,
   fieldLabel,
 } from './components'
@@ -14,7 +13,6 @@ import {
 import {
   usePopupData,
   useFormFiller,
-  useTestScan,
 } from './context'
 
 export const Popup = () => {
@@ -38,9 +36,6 @@ export const Popup = () => {
 
   // Use fields from filler if available, otherwise fallback to initially detected fields
   const detectedFields = fillerDetectedFields.length > 0 ? fillerDetectedFields : initialDetectedFields
-
-  // 🔍 Test scan logic
-  const { isScanning, testResult, viewMode, setViewMode, handleTestScan } = useTestScan()
 
   // 🎯 Tab state (only state left in main component!)
   const [activeTab, setActiveTab] = useState<string>('fill')
@@ -83,16 +78,6 @@ export const Popup = () => {
             />
           </>
         )}
-
-        {activeTab === 'test' && (
-          <TestScan
-            isScanning={isScanning}
-            testResult={testResult}
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
-            onScan={handleTestScan}
-          />
-        )}
       </main>
 
       <Navigation
@@ -100,9 +85,7 @@ export const Popup = () => {
         onTabChange={setActiveTab}
         onFillClick={() => setActiveTab('fill')}
         onDashboardClick={openDashboard}
-        onTestScanClick={() => setActiveTab('test')}
         onSettingsClick={openOptions}
-        isScanning={isScanning}
       />
 
       <div className="popup-deco-top" />

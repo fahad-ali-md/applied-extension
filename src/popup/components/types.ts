@@ -47,15 +47,7 @@ export interface NavigationProps {
   onTabChange: (tab: string) => void
   onFillClick: () => void
   onDashboardClick: () => void
-  onTestScanClick: () => void
   onSettingsClick: () => void
-  isScanning?: boolean
+  onCVClick?: () => void
 }
 
-export interface TestScanProps {
-  isScanning: boolean
-  testResult: any
-  viewMode: 'list' | 'toon'
-  onViewModeChange: (mode: 'list' | 'toon') => void
-  onScan: () => void
-}
