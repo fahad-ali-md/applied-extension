@@ -7,6 +7,7 @@
 
 import { useState, useCallback } from 'react'
 import { getCVData } from '../../utils/storageHelpers'
+import { generatePDFWithDirectCDP, getPDFSize } from '../../utils/directCDP'
 
 export interface CVWorkflowState {
   loading: boolean
@@ -54,51 +55,34 @@ export function useCVWorkflow(): UseCVWorkflowReturn {
       loading: true,
       success: false,
       error: null,
-      progress: 'Starting CV generation...',
+      progress: 'Fetching CV data...',
       stagesCompleted: []
     })
 
     try {
-      const response = await chrome.runtime.sendMessage({
-        action: 'generateCV',
-        filename
+      const cvData = await getCVData()
+      if (!cvData) throw new Error('No CV data found')
+
+      setState(prev => ({ ...prev, progress: 'Generating PDF...', stagesCompleted: ['storage'] }))
+
+      // Generate PDF using Direct CDP (chrome.debugger)
+      const compileResult = await generatePDFWithDirectCDP(cvData as any, { filename })
+
+      if (!compileResult.success || !compileResult.pdfBlob) {
+        throw new Error(compileResult.error || 'Failed to compile PDF')
+      }
+
+      const pdfSizeStr = getPDFSize(compileResult.pdfBlob)
+
+      setState({
+        loading: false,
+        success: true,
+        error: null,
+        progress: 'CV generated successfully!',
+        stagesCompleted: ['storage', 'pdf'],
+        pdfSize: pdfSizeStr,
+        pdfBlob: compileResult.pdfBlob
       })
-
-      console.log('[useCVWorkflow] Received response:', response)
-
-      if (!response) {
-        throw new Error('No response from background script')
-      }
-
-      if (response.success) {
-        console.log('[useCVWorkflow] Response successful, pdfBase64:', response.pdfBase64 ? 'exists' : 'MISSING')
-
-        // Convert base64 back to Blob for preview
-        let pdfBlob: Blob | undefined
-        if (response.pdfBase64) {
-          const binaryString = atob(response.pdfBase64)
-          const bytes = new Uint8Array(binaryString.length)
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i)
-          }
-          pdfBlob = new Blob([bytes], { type: 'application/pdf' })
-          console.log('[useCVWorkflow] Created blob from base64, size:', pdfBlob.size)
-        } else {
-          console.error('[useCVWorkflow] No pdfBase64 in response!')
-        }
-
-        setState({
-          loading: false,
-          success: true,
-          error: null,
-          progress: 'CV generated and downloaded!',
-          stagesCompleted: response.stagesCompleted || [],
-          pdfSize: response.pdfSize,
-          pdfBlob
-        })
-      } else {
-        throw new Error(response.error || 'Failed to generate CV')
-      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       setState(prev => ({
@@ -116,45 +100,72 @@ export function useCVWorkflow(): UseCVWorkflowReturn {
       loading: true,
       success: false,
       error: null,
-      progress: 'Starting CV generation and upload...',
+      progress: 'Starting CV generation...',
       stagesCompleted: []
     })
 
     try {
-      const response = await chrome.runtime.sendMessage({
-        action: 'generateAndUploadCV',
-        filename
-      })
+      const cvData = await getCVData()
+      if (!cvData) throw new Error('No CV data found')
 
-      if (!response) {
-        throw new Error('No response from background script')
+      setState(prev => ({ ...prev, progress: 'Generating PDF...', stagesCompleted: ['storage'] }))
+
+      // Generate PDF using Direct CDP (chrome.debugger)
+      const compileResult = await generatePDFWithDirectCDP(cvData as any, { filename })
+
+      if (!compileResult.success || !compileResult.pdfBlob) {
+        throw new Error(compileResult.error || 'Failed to compile PDF')
       }
 
-      if (response.success) {
-        // Convert base64 back to Blob for preview
-        let pdfBlob: Blob | undefined
-        if (response.pdfBase64) {
-          const binaryString = atob(response.pdfBase64)
-          const bytes = new Uint8Array(binaryString.length)
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i)
+      const pdfSizeStr = getPDFSize(compileResult.pdfBlob)
+      setState(prev => ({ ...prev, progress: 'Uploading PDF...', stagesCompleted: ['storage', 'pdf'] }))
+
+      // Send to content script for upload
+      let uploadStats = { uploaded: 0, errors: [] as string[] }
+
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+        if (tab?.id) {
+          // We need to convert blob to base64 to send it via messaging
+          const reader = new FileReader()
+          const base64Promise = new Promise<string>((resolve) => {
+            reader.onloadend = () => {
+              const base64data = (reader.result as string).split(',')[1]
+              resolve(base64data)
+            }
+          })
+          reader.readAsDataURL(compileResult.pdfBlob)
+          const base64pdf = await base64Promise
+
+          const response = await chrome.tabs.sendMessage(tab.id, {
+            action: 'uploadCV',
+            pdfBase64: base64pdf,
+            filename
+          })
+
+          if (response?.success) {
+            uploadStats = response.stats
+          } else {
+            uploadStats.errors.push(response?.error || 'Content script upload failed')
           }
-          pdfBlob = new Blob([bytes], { type: 'application/pdf' })
+        } else {
+          uploadStats.errors.push('No active tab found')
         }
-
-        setState({
-          loading: false,
-          success: true,
-          error: null,
-          progress: 'CV generated and uploaded!',
-          stagesCompleted: response.stagesCompleted || [],
-          pdfSize: response.pdfSize,
-          uploadStats: response.uploadStats,
-          pdfBlob
-        })
-      } else {
-        throw new Error(response.error || 'Failed to generate/upload CV')
+      } catch (uploadError) {
+        console.error('Upload message error:', uploadError)
+        uploadStats.errors.push('Could not connect to page to upload. Ensure you are on a compatible page.')
       }
+
+      setState({
+        loading: false,
+        success: true,
+        error: null,
+        progress: 'CV generated and upload initiated!',
+        stagesCompleted: ['storage', 'pdf', 'upload'],
+        pdfSize: pdfSizeStr,
+        uploadStats,
+        pdfBlob: compileResult.pdfBlob
+      })
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       setState(prev => ({

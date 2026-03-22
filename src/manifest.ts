@@ -25,6 +25,9 @@ export default defineManifest({
     service_worker: 'src/background/index.ts',
     type: 'module',
   },
+  offscreen: {
+    document: 'offscreen.html',
+  },
   content_scripts: [
     {
       matches: ['http://*/*', 'https://*/*'],
@@ -43,7 +46,7 @@ export default defineManifest({
       matches: [],
     },
   ],
-  permissions: ['storage', 'activeTab', 'scripting', 'debugger'],
+  permissions: ['storage', 'activeTab', 'scripting', 'debugger', 'offscreen'],
   host_permissions: ['<all_urls>'],
   chrome_url_overrides: {
     newtab: 'newtab.html',

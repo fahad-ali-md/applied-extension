@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Simple Puppeteer PDF Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    button {
+      padding: 15px 30px;
+      font-size: 16px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    #status {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f5f5f5;
+      border-radius: 5px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧪 Simple Puppeteer PDF Test</h1>
+  <button id="testBtn">Generate PDF</button>
+  <div id="status">Ready...</div>
+
+  <script>
+    document.getElementById('testBtn').addEventListener('click', async () => {
+      const status = document.getElementById('status');
+
+      try {
+        // Simple HTML
+        const html = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; padding: 40px; line-height: 1.6; }
+              h1 { color: #333; font-size: 24px; margin-bottom: 20px; }
+              p { color: #666; margin-bottom: 15px; }
+              ul { margin: 20px 0; }
+              li { margin-bottom: 8px; color: #555; }
+              .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #999; font-size: 14px; }
+            </style>
+          </head>
+          <body>
+            <h1>Hello Fahad! 👋</h1>
+            <p>This is a <strong>test PDF</strong> generated using Puppeteer.</p>
+            <p>If you can see this text with proper formatting, the PDF generation is working!</p>
+            <h2 style="color: #667eea; font-size: 18px; margin-top: 30px;">Test Features:</h2>
+            <ul>
+              <li>Bold and italic text formatting</li>
+              <li>Proper spacing and margins</li>
+              <li>Color support (see the blue heading above)</li>
+              <li>Bullet points and lists</li>
+              <li>Multiple paragraphs</li>
+            </ul>
+            <p style="background: #f5f5f5; padding: 15px; border-left: 4px solid #667eea;">
+              <strong>Note:</strong> This PDF was generated entirely in the browser using Chrome's debugger API!
+            </p>
+            <div class="footer">
+              Generated on ${new Date().toLocaleString()}<br>
+              Using Puppeteer + chrome.debugger
+            </div>
+          </body>
+          </html>
+        `;
+
+        status.innerHTML = '⏳ Creating tab...';
+
+        // Create tab with data URL
+        const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
+        const tab = await chrome.tabs.create({ url: dataUrl, active: false });
+
+        status.innerHTML = '✅ Tab created (ID: ' + tab.id + ')<br>⏳ Waiting for page to fully load...';
+
+        // Wait for tab to fully load
+        await waitForTabComplete(tab.id);
+
+        // Additional wait for rendering
+        await new Promise(r => setTimeout(r, 2000));
+
+        status.innerHTML = '✅ Page loaded<br>⏳ Attaching debugger...';
+
+        // Attach debugger
+        await chrome.debugger.attach({ tabId: tab.id }, '1.3');
+
+        try {
+          status.innerHTML = '✅ Debugger attached<br>⏳ Enabling Page domain...';
+
+          // Enable Page domain
+          await chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.enable');
+
+          status.innerHTML = '✅ Page enabled<br>⏳ Generating PDF...';
+
+          // Small wait for rendering
+          await new Promise(r => setTimeout(r, 500));
+
+          // Generate PDF
+          const result = await chrome.debugger.sendCommand(
+            { tabId: tab.id },
+            'Page.printToPDF',
+            {
+              landscape: false,
+              displayHeaderFooter: false,
+              printBackground: true,
+              preferCSSPageSize: false,
+              paperWidth: 8.27,
+              paperHeight: 11.69,
+              marginTop: 0.5,
+              marginBottom: 0.5,
+              marginLeft: 0.5,
+              marginRight: 0.5
+            }
+          );
+
+          const sizeKB = Math.round(result.data.length / 1024);
+          status.innerHTML = '✅ PDF generated! Size: ' + sizeKB + ' KB<br>⏳ Preparing download...';
+
+          // Convert to blob and download
+          const binary = atob(result.data);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+          }
+          const blob = new Blob([bytes], { type: 'application/pdf' });
+
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'test-puppeteer.pdf';
+          a.click();
+          URL.revokeObjectURL(url);
+
+          status.innerHTML = `
+            <strong style="color: green; font-size: 18px;">✅ SUCCESS!</strong><br><br>
+            PDF downloaded: <strong>test-puppeteer.pdf</strong><br>
+            Size: ${sizeKB} KB<br><br>
+            <strong>Check the PDF to see if content is visible!</strong>
+          `;
+
+          // Close tab after delay
+          setTimeout(() => chrome.tabs.remove(tab.id), 1000);
+
+        } finally {
+          // Detach debugger
+          try {
+            await chrome.debugger.detach({ tabId: tab.id });
+          } catch (e) {
+            console.warn('Detach warning:', e);
+          }
+        }
+
+      } catch (error) {
+        status.innerHTML = '<strong style="color: red;">❌ ERROR:</strong><br>' + error.message;
+        console.error('Error:', error);
+      }
+    });
+
+    // Helper: Wait for tab to complete loading
+    async function waitForTabComplete(tabId, timeout = 15000) {
+      const start = Date.now();
+      while (Date.now() - start < timeout) {
+        const tab = await chrome.tabs.get(tabId);
+        if (tab.status === 'complete') {
+          console.log('[Test] Tab fully loaded');
+          return;
+        }
+        await new Promise(r => setTimeout(r, 100));
+      }
+      throw new Error('Tab did not load in time');
+    }
+  </script>
+</body>
+</html>

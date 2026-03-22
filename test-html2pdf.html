@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test html2pdf.js</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+    #status { margin-top: 20px; padding: 15px; border-radius: 5px; }
+    #library-status { margin-top: 10px; padding: 10px; background: #f0f0f0; border-radius: 5px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>🧪 Test html2pdf.js PDF Generation</h1>
+  <button id="testBtn" disabled>Generate PDF Test</button>
+  <div id="library-status">⏳ Loading html2pdf.js library...</div>
+  <div id="status"></div>
+
+  <!-- Load html2pdf.js library with proper error handling -->
+  <script>
+    // Function to load script
+    function loadScript(url) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = url;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error(`Failed to load: ${url}`));
+        document.head.appendChild(script);
+      });
+    }
+
+    // Load library and initialize
+    async function init() {
+      const libraryStatus = document.getElementById('library-status');
+      const testBtn = document.getElementById('testBtn');
+
+      try {
+        // Try loading from different CDNs
+        const cdns = [
+          'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.14.1/html2pdf.bundle.min.js',
+          'https://unpkg.com/html2pdf.js@0.14.1/dist/html2pdf.bundle.min.js',
+          'https://cdn.jsdelivr.net/npm/html2pdf.js@0.14.1/dist/html2pdf.bundle.min.js'
+        ];
+
+        let loaded = false;
+        for (const cdn of cdns) {
+          try {
+            console.log(`Trying to load from: ${cdn}`);
+            await loadScript(cdn);
+            loaded = true;
+            libraryStatus.innerHTML = `✅ Library loaded from: ${cdn.split('/')[2]}`;
+            libraryStatus.style.color = 'green';
+            break;
+          } catch (e) {
+            console.log(`Failed: ${cdn}`);
+            continue;
+          }
+        }
+
+        if (!loaded) {
+          throw new Error('Failed to load html2pdf.js from all CDNs');
+        }
+
+        // Check if html2pdf is available
+        if (typeof html2pdf === 'undefined' && typeof window.html2pdf === 'undefined') {
+          throw new Error('html2pdf is not defined after loading library');
+        }
+
+        // Enable button
+        testBtn.disabled = false;
+        testBtn.addEventListener('click', testPDFGeneration);
+
+        console.log('✅ html2pdf.js loaded successfully');
+      } catch (error) {
+        libraryStatus.innerHTML = `❌ ${error.message}`;
+        libraryStatus.style.color = 'red';
+        testBtn.disabled = true;
+        console.error('Error loading library:', error);
+      }
+    }
+
+    // Sample CV Data
+    const sampleCV = {
+      personal: {
+        firstName: 'John',
+        lastName: 'Doe',
+        email: 'john.doe@gmail.com',
+        phone: '+1-234-567-8900',
+        linkedIn: 'linkedin.com/in/johndoe'
+      },
+      professional: {
+        summary: 'Experienced software developer with expertise in full-stack development, cloud architecture, and building scalable applications.',
+        currentTitle: 'Senior Software Engineer'
+      },
+      experience: [
+        {
+          role: 'Senior Software Engineer',
+          company: 'Google',
+          startDate: '08/2021',
+          current: true,
+          highlights: [
+            '• Led team of 5 engineers to develop microservices architecture serving 500k+ users',
+            '• Reduced API response time by 40% through Redis caching',
+            '• Architected real-time notification system using WebSockets'
+          ]
+        }
+      ],
+      skills: {
+        'Frontend': ['React', 'TypeScript', 'JavaScript'],
+        'Backend': ['Node.js', 'Python', 'Go']
+      }
+    };
+
+    // Generate HTML
+    function generateHTML(cvData) {
+      const fullName = `${cvData.personal.firstName} ${cvData.personal.lastName}`;
+      return `
+        <div style="font-family: Arial, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto;">
+          <div style="text-align: center; margin-bottom: 30px;">
+            <h1 style="font-size: 26px; font-weight: bold; margin-bottom: 5px;">${fullName}</h1>
+            <h2 style="font-size: 16px; color: #555;">${cvData.professional.currentTitle}</h2>
+            <div style="font-size: 12px; color: #666;">
+              ${cvData.personal.email} | ${cvData.personal.phone}
+            </div>
+          </div>
+
+          <div style="margin-bottom: 25px;">
+            <h3 style="font-size: 13px; font-weight: bold; text-transform: uppercase; border-bottom: 1px solid #000; padding-bottom: 3px; margin-bottom: 10px;">
+              Professional Summary
+            </h3>
+            <p style="font-size: 12px; line-height: 1.5;">${cvData.professional.summary}</p>
+          </div>
+
+          <div style="margin-bottom: 25px;">
+            <h3 style="font-size: 13px; font-weight: bold; text-transform: uppercase; border-bottom: 1px solid #000; padding-bottom: 3px; margin-bottom: 10px;">
+              Experience
+            </h3>
+            ${cvData.experience.map(exp => `
+              <div style="margin-bottom: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px;">
+                  <div style="font-weight: bold; font-size: 12px;">${exp.role} - ${exp.company}</div>
+                  <div style="font-size: 11px; color: #666;">${exp.startDate} - Present</div>
+                </div>
+                <ul style="margin: 8px 0; padding-left: 20px;">
+                  ${exp.highlights.map(h => `<li style="font-size: 11px; margin-bottom: 4px;">${h}</li>`).join('')}
+                </ul>
+              </div>
+            `).join('')}
+          </div>
+
+          <div>
+            <h3 style="font-size: 13px; font-weight: bold; text-transform: uppercase; border-bottom: 1px solid #000; padding-bottom: 3px; margin-bottom: 10px;">
+              Skills
+            </h3>
+            ${Object.entries(cvData.skills).map(([category, skills]) => `
+              <div style="margin-bottom: 8px; font-size: 12px;">
+                <strong>${category}:</strong> ${skills.join(', ')}
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // Test PDF Generation
+    async function testPDFGeneration() {
+      const status = document.getElementById('status');
+      status.innerHTML = '<p style="color: blue;">⏳ Generating PDF...</p>';
+
+      try {
+        console.log('🧪 Testing html2pdf.js');
+
+        // Check if html2pdf is available
+        const html2pdfLib = typeof html2pdf !== 'undefined' ? html2pdf : window.html2pdf;
+        if (!html2pdfLib) {
+          throw new Error('html2pdf library is not available');
+        }
+
+        const html = generateHTML(sampleCV);
+
+        // Create element
+        const element = document.createElement('div');
+        element.innerHTML = html;
+        document.body.appendChild(element);
+
+        // Configure html2pdf
+        const opt = {
+          margin: [10, 10, 10, 10],
+          filename: 'test-cv-html2pdf.pdf',
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 2 },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        console.log('📄 Generating PDF...');
+        await html2pdfLib().set(opt).from(element).save();
+
+        // Cleanup
+        document.body.removeChild(element);
+
+        status.innerHTML = `
+          <p style="color: green;">✅ SUCCESS!</p>
+          <p>PDF downloaded: <strong>test-cv-html2pdf.pdf</strong></p>
+          <p style="font-size: 12px; color: #666;">
+            ✓ Perfect HTML/CSS layout<br>
+            ✓ Auto text wrapping<br>
+            ✓ Professional spacing<br>
+            ✓ Better typography
+          </p>
+        `;
+        console.log('✅ PDF generated successfully!');
+      } catch (error) {
+        status.innerHTML = `<p style="color: red;">❌ ERROR: ${error.message}</p>`;
+        console.error('Error:', error);
+      }
+    }
+
+    // Initialize when DOM is ready
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

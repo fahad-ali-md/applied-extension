@@ -40,6 +40,8 @@ const ProjectSchema = z.object({
   description: z.string(),
   technologies: z.array(z.string()),
   url: z.string().optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
   highlights: z.array(z.string()),
   visibleInCV: z.boolean().optional().default(true),
 })
@@ -104,6 +106,8 @@ interface Project {
   description: string
   technologies: string[]
   url?: string
+  startDate?: string
+  endDate?: string
   highlights: string[]
 }
 
@@ -493,185 +497,254 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   // Parse CV - Smart: Browser first, AI fallback (or force AI)
   if (request.action === 'parseCV') {
-    const { cvText, provider, apiKey, model, forceAI = false } = request
-    const parseId = `smart_parse_${Date.now()}`
+    (async () => {
+      const { cvText, provider, apiKey, model, forceAI = false } = request
+      const parseId = `smart_parse_${Date.now()}`
 
-    console.log(`[Smart CV Parser][${parseId}] Starting...`, {
-      cvLength: cvText.length,
-      forceAI,
-      provider
-    })
+      console.log(`[Smart CV Parser][${parseId}] Starting...`, {
+        cvLength: cvText.length,
+        forceAI,
+        provider
+      })
 
-    // 🎯 If user wants to force AI, skip browser parsing
-    if (forceAI) {
-      console.log(`[Smart CV Parser][${parseId}] 🤖 Forced AI mode - skipping browser parsing`)
-      parseCVWithAI(cvText, provider, apiKey, model)
+      // 🎯 If user wants to force AI, skip browser parsing
+      if (forceAI) {
+        console.log(`[Smart CV Parser][${parseId}] 🤖 Forced AI mode - skipping browser parsing`)
+        parseCVWithAI(cvText, provider, apiKey, model)
+          .then(parsedCV => {
+            if (parsedCV) {
+              console.log(`[Smart CV Parser][${parseId}] ✅ AI parsing successful!`)
+              chrome.storage.local.set({ [STORAGE_KEYS.PARSED_CV]: parsedCV }).then(() => {
+                sendResponse({
+                  success: true,
+                  data: parsedCV,
+                  meta: {
+                    method: 'ai',
+                    confidence: 95,
+                    cost: 0.0004,
+                    forced: true
+                  }
+                })
+              })
+            } else {
+              sendResponse({
+                success: false,
+                error: 'AI parsing failed'
+              })
+            }
+          })
+          .catch(error => sendResponse({ success: false, error: error.message }))
+        return true
+      }
+
+      // 🎯 Step 1: Try browser parsing (FREE!)
+      console.log(`[Smart CV Parser][${parseId}] Step 1: Browser parsing (FREE!)`)
+      const browserResult = parseCVWithBrowser(cvText)
+
+      console.log(`[Smart CV Parser][${parseId}] Browser result:`, {
+        confidence: browserResult.confidence,
+        threshold: BROWSER_PARSING_CONFIDENCE_THRESHOLD,
+        fields: {
+          name: `${browserResult.personal.firstName || ''} ${browserResult.personal.lastName || ''}`.trim() || 'MISSING',
+          email: browserResult.personal.email || 'MISSING',
+          phone: browserResult.personal.phone || 'MISSING',
+          experience: browserResult.experience.length,
+          education: browserResult.education.length,
+          skills: browserResult.skills._raw?.length || 0
+        }
+      })
+
+      // 🎯 Step 2: Check if confidence is good enough
+      console.log(`🔍 [DEBUG] Smart Parser - Browser result skills:`, JSON.stringify(browserResult.skills, null, 2))
+
+      if (browserResult.confidence >= BROWSER_PARSING_CONFIDENCE_THRESHOLD) {
+        console.log(`[Smart CV Parser][${parseId}] ✅ Browser parsing successful! (${browserResult.confidence}% >= ${BROWSER_PARSING_CONFIDENCE_THRESHOLD}%)`)
+        console.log(`[Smart CV Parser][${parseId}] 💰 Cost: $0.00 (FREE!)`)
+
+        // Convert browser result to ParsedCV format
+        const parsedCV: ParsedCV = {
+          personal: {
+            firstName: browserResult.personal.firstName || '',
+            lastName: browserResult.personal.lastName || '',
+            email: browserResult.personal.email || '',
+            phone: browserResult.personal.phone || '',
+            gender: 'prefer_not_to_say',
+            linkedIn: browserResult.personal.linkedIn,
+            portfolio: browserResult.personal.portfolio
+          },
+          professional: {
+            currentTitle: 'Software Developer', // Default if not found
+            summary: browserResult.summary || `Extracted with ${browserResult.confidence}% confidence using browser-based parsing.`,
+            yearsOfExperience: browserResult.experience.length > 0 ? browserResult.experience.length : 0
+          },
+          skills: browserResult.skills || {}, // Dynamic categories from browser parser
+          experience: browserResult.experience,
+          projects: browserResult.projects,
+          education: browserResult.education,
+          rawText: cvText,
+          parsedAt: Date.now()
+        }
+
+        console.log(`✅ [DEBUG] Browser Parser - Final ParsedCV skills:`, JSON.stringify(parsedCV.skills, null, 2))
+
+        // 🤖 AI ENHANCEMENT: Check if experience/projects need bullets or better descriptions
+        const needsEnhancement = parsedCV.experience?.some(exp => !exp.highlights || exp.highlights.length === 0) ||
+          parsedCV.projects?.some(proj => !proj.highlights || proj.highlights.length === 0 || !proj.description || proj.description.length < 20)
+
+        if (needsEnhancement && apiKey) {
+          console.log(`[Smart CV Parser][${parseId}] 🎨 Enhancing CV with AI (bullets + project details)...`)
+
+          // Enhance experience entries
+          if (parsedCV.experience) {
+            for (const exp of parsedCV.experience) {
+              if (!exp.highlights || exp.highlights.length === 0) {
+                console.log(`[Smart CV Parser][${parseId}] Generating bullets for: ${exp.role} at ${exp.company}`)
+                exp.highlights = await generateBulletsWithAI({
+                  projectName: exp.company,
+                  role: exp.role,
+                  techStack: exp.skills || []
+                }, provider, apiKey, model)
+              }
+            }
+          }
+
+          // Enhance projects - parse raw text into structured data
+          if (parsedCV.projects && parsedCV.projects.length > 0) {
+            const rawProjectsText = parsedCV.projects.map(p => p.description).join('\n\n')
+
+            if (rawProjectsText.length > 50) {
+              console.log(`[Smart CV Parser][${parseId}] 🎨 Parsing projects with AI...`)
+
+              const enhancedProjects = await parseProjectsWithAI({
+                rawText: rawProjectsText
+              }, provider, apiKey, model)
+
+              if (enhancedProjects && enhancedProjects.length > 0) {
+                // Debug: Log AI response
+                console.log('[Smart CV Parser][${parseId}] 🤖 AI Response (first project):', JSON.stringify(enhancedProjects[0], null, 2))
+
+                // Replace raw projects with AI-parsed projects
+                parsedCV.projects = enhancedProjects.map((proj, index) => ({
+                  id: `proj_${Date.now()}_${index}`,
+                  name: proj.name || 'Project',
+                  description: proj.description || '',
+                  technologies: proj.technologies || [],
+                  url: proj.url || '',
+                  startDate: proj.startDate || '',
+                  endDate: proj.endDate || '',
+                  highlights: proj.highlights || []
+                }))
+
+                console.log(`[Smart CV Parser][${parseId}] ✅ Parsed ${enhancedProjects.length} projects with AI!`)
+
+                // Debug: Log final mapped projects
+                console.log('[Smart CV Parser][${parseId}] 📦 Final projects (first):', JSON.stringify(parsedCV.projects[0], null, 2))
+              }
+            }
+          }
+
+          console.log(`[Smart CV Parser][${parseId}] ✅ AI enhancement complete!`)
+        }
+
+        // ========== HR VALIDATION LAYER ==========
+        const hrWarnings = validateCVForHR(parsedCV)
+        if (hrWarnings.length > 0) {
+          console.log(`[Smart CV Parser][${parseId}] ⚠️ HR Validation Warnings:`)
+          hrWarnings.forEach(warning => console.log(`  ${warning}`))
+        }
+
+        // Save and return
+        chrome.storage.local.set({ [STORAGE_KEYS.PARSED_CV]: parsedCV }).then(() => {
+          sendResponse({
+            success: true,
+            data: parsedCV,
+            meta: {
+              method: 'browser',
+              confidence: browserResult.confidence,
+              cost: 0
+            }
+          })
+        }).catch(error => sendResponse({ success: false, error: error.message }))
+
+        return true
+      }
+
+      // 🎯 Step 3: Browser confidence too low - Try Hybrid Parser first!
+      console.log(`[Smart CV Parser][${parseId}] ⚠️ Browser confidence too low (${browserResult.confidence}% < ${BROWSER_PARSING_CONFIDENCE_THRESHOLD}%)`)
+      console.log(`[Smart CV Parser][${parseId}] 🤖 Step 3: Trying Hybrid Parser (Regex + Chunked AI)...`)
+
+      parseCVWithHybrid(cvText, provider, apiKey, model)
+        .then(hybridResult => {
+          if (hybridResult.data) {
+            console.log(`[Smart CV Parser][${parseId}] ✅ Hybrid parsing successful!`)
+            console.log(`[Smart CV Parser][${parseId}] 💰 Cost: $${hybridResult.totalCost.toFixed(6)} (${hybridResult.totalTokens} tokens)`)
+
+            // Preserve languages from browser parser if hybrid didn't find any
+            if (browserResult.skills.languages && browserResult.skills.languages.length > 0) {
+              if (!hybridResult.data.skills.languages || hybridResult.data.skills.languages.length === 0) {
+                hybridResult.data.skills.languages = browserResult.skills.languages
+                console.log(`[Smart CV Parser][${parseId}] 📝 Preserved languages from browser parser:`, browserResult.skills.languages)
+              }
+            }
+
+            chrome.storage.local.set({ [STORAGE_KEYS.PARSED_CV]: hybridResult.data }).then(() => {
+              sendResponse({
+                success: true,
+                data: hybridResult.data,
+                meta: {
+                  method: 'hybrid',
+                  confidence: 90,
+                  cost: hybridResult.totalCost,
+                  tokens: hybridResult.totalTokens,
+                  breakdown: hybridResult.tokenUsage
+                }
+              })
+            })
+          } else {
+            // Hybrid failed - Fall back to full AI
+            console.log(`[Smart CV Parser][${parseId}] ⚠️ Hybrid parsing failed, falling back to Full AI...`)
+
+            return parseCVWithAI(cvText, provider, apiKey, model)
+          }
+        })
         .then(parsedCV => {
+          // This handles the full AI fallback
           if (parsedCV) {
-            console.log(`[Smart CV Parser][${parseId}] ✅ AI parsing successful!`)
+            console.log(`[Smart CV Parser][${parseId}] ✅ Full AI parsing successful!`)
+            console.log(`[Smart CV Parser][${parseId}] 💰 Cost: ~$0.0004`)
+
+            // Preserve languages from browser parser if AI didn't find any
+            if (browserResult.skills.languages && browserResult.skills.languages.length > 0) {
+              if (!parsedCV.skills.languages || parsedCV.skills.languages.length === 0) {
+                parsedCV.skills.languages = browserResult.skills.languages
+                console.log(`[Smart CV Parser][${parseId}] 📝 Preserved languages from browser parser:`, browserResult.skills.languages)
+              }
+            }
+
             chrome.storage.local.set({ [STORAGE_KEYS.PARSED_CV]: parsedCV }).then(() => {
               sendResponse({
                 success: true,
                 data: parsedCV,
                 meta: {
-                  method: 'ai',
+                  method: 'ai-full',
                   confidence: 95,
-                  cost: 0.0004,
-                  forced: true
+                  cost: 0.0004
                 }
               })
             })
-          } else {
-            sendResponse({
-              success: false,
-              error: 'AI parsing failed'
-            })
           }
+          // If parsedCV is null, hybrid succeeded and we already sent response
         })
-        .catch(error => sendResponse({ success: false, error: error.message }))
-      return true
-    }
-
-    // 🎯 Step 1: Try browser parsing (FREE!)
-    console.log(`[Smart CV Parser][${parseId}] Step 1: Browser parsing (FREE!)`)
-    const browserResult = parseCVWithBrowser(cvText)
-
-    console.log(`[Smart CV Parser][${parseId}] Browser result:`, {
-      confidence: browserResult.confidence,
-      threshold: BROWSER_PARSING_CONFIDENCE_THRESHOLD,
-      fields: {
-        name: `${browserResult.personal.firstName || ''} ${browserResult.personal.lastName || ''}`.trim() || 'MISSING',
-        email: browserResult.personal.email || 'MISSING',
-        phone: browserResult.personal.phone || 'MISSING',
-        experience: browserResult.experience.length,
-        education: browserResult.education.length,
-        skills: browserResult.skills._raw?.length || 0
-      }
-    })
-
-    // 🎯 Step 2: Check if confidence is good enough
-    console.log(`🔍 [DEBUG] Smart Parser - Browser result skills:`, JSON.stringify(browserResult.skills, null, 2))
-
-    if (browserResult.confidence >= BROWSER_PARSING_CONFIDENCE_THRESHOLD) {
-      console.log(`[Smart CV Parser][${parseId}] ✅ Browser parsing successful! (${browserResult.confidence}% >= ${BROWSER_PARSING_CONFIDENCE_THRESHOLD}%)`)
-      console.log(`[Smart CV Parser][${parseId}] 💰 Cost: $0.00 (FREE!)`)
-
-      // Convert browser result to ParsedCV format
-      const parsedCV: ParsedCV = {
-        personal: {
-          firstName: browserResult.personal.firstName || '',
-          lastName: browserResult.personal.lastName || '',
-          email: browserResult.personal.email || '',
-          phone: browserResult.personal.phone || '',
-          gender: 'prefer_not_to_say',
-          linkedIn: browserResult.personal.linkedIn,
-          portfolio: browserResult.personal.portfolio
-        },
-        professional: {
-          currentTitle: 'Software Developer', // Default if not found
-          summary: `Extracted with ${browserResult.confidence}% confidence using browser-based parsing.`,
-          yearsOfExperience: browserResult.experience.length > 0 ? browserResult.experience.length : 0
-        },
-        skills: browserResult.skills || {}, // Dynamic categories from browser parser
-        experience: browserResult.experience,
-        projects: browserResult.projects,
-        education: browserResult.education,
-        rawText: cvText,
-        parsedAt: Date.now()
-      }
-
-      console.log(`✅ [DEBUG] Browser Parser - Final ParsedCV skills:`, JSON.stringify(parsedCV.skills, null, 2))
-
-      // Save and return
-      chrome.storage.local.set({ [STORAGE_KEYS.PARSED_CV]: parsedCV }).then(() => {
-        sendResponse({
-          success: true,
-          data: parsedCV,
-          meta: {
-            method: 'browser',
-            confidence: browserResult.confidence,
-            cost: 0
-          }
-        })
-      }).catch(error => sendResponse({ success: false, error: error.message }))
-
-      return true
-    }
-
-    // 🎯 Step 3: Browser confidence too low - Try Hybrid Parser first!
-    console.log(`[Smart CV Parser][${parseId}] ⚠️ Browser confidence too low (${browserResult.confidence}% < ${BROWSER_PARSING_CONFIDENCE_THRESHOLD}%)`)
-    console.log(`[Smart CV Parser][${parseId}] 🤖 Step 3: Trying Hybrid Parser (Regex + Chunked AI)...`)
-
-    parseCVWithHybrid(cvText, provider, apiKey, model)
-      .then(hybridResult => {
-        if (hybridResult.data) {
-          console.log(`[Smart CV Parser][${parseId}] ✅ Hybrid parsing successful!`)
-          console.log(`[Smart CV Parser][${parseId}] 💰 Cost: $${hybridResult.totalCost.toFixed(6)} (${hybridResult.totalTokens} tokens)`)
-
-          // Preserve languages from browser parser if hybrid didn't find any
-          if (browserResult.skills.languages && browserResult.skills.languages.length > 0) {
-            if (!hybridResult.data.skills.languages || hybridResult.data.skills.languages.length === 0) {
-              hybridResult.data.skills.languages = browserResult.skills.languages
-              console.log(`[Smart CV Parser][${parseId}] 📝 Preserved languages from browser parser:`, browserResult.skills.languages)
-            }
-          }
-
-          chrome.storage.local.set({ [STORAGE_KEYS.PARSED_CV]: hybridResult.data }).then(() => {
-            sendResponse({
-              success: true,
-              data: hybridResult.data,
-              meta: {
-                method: 'hybrid',
-                confidence: 90,
-                cost: hybridResult.totalCost,
-                tokens: hybridResult.totalTokens,
-                breakdown: hybridResult.tokenUsage
-              }
-            })
+        .catch(error => {
+          console.error(`[Smart CV Parser][${parseId}] ❌ All parsing methods failed!`)
+          console.error(`[Smart CV Parser][${parseId}] Error:`, error.message)
+          sendResponse({
+            success: false,
+            error: 'Browser, Hybrid, and AI parsing all failed'
           })
-        } else {
-          // Hybrid failed - Fall back to full AI
-          console.log(`[Smart CV Parser][${parseId}] ⚠️ Hybrid parsing failed, falling back to Full AI...`)
-
-          return parseCVWithAI(cvText, provider, apiKey, model)
-        }
-      })
-      .then(parsedCV => {
-        // This handles the full AI fallback
-        if (parsedCV) {
-          console.log(`[Smart CV Parser][${parseId}] ✅ Full AI parsing successful!`)
-          console.log(`[Smart CV Parser][${parseId}] 💰 Cost: ~$0.0004`)
-
-          // Preserve languages from browser parser if AI didn't find any
-          if (browserResult.skills.languages && browserResult.skills.languages.length > 0) {
-            if (!parsedCV.skills.languages || parsedCV.skills.languages.length === 0) {
-              parsedCV.skills.languages = browserResult.skills.languages
-              console.log(`[Smart CV Parser][${parseId}] 📝 Preserved languages from browser parser:`, browserResult.skills.languages)
-            }
-          }
-
-          chrome.storage.local.set({ [STORAGE_KEYS.PARSED_CV]: parsedCV }).then(() => {
-            sendResponse({
-              success: true,
-              data: parsedCV,
-              meta: {
-                method: 'ai-full',
-                confidence: 95,
-                cost: 0.0004
-              }
-            })
-          })
-        }
-        // If parsedCV is null, hybrid succeeded and we already sent response
-      })
-      .catch(error => {
-        console.error(`[Smart CV Parser][${parseId}] ❌ All parsing methods failed!`)
-        console.error(`[Smart CV Parser][${parseId}] Error:`, error.message)
-        sendResponse({
-          success: false,
-          error: 'Browser, Hybrid, and AI parsing all failed'
         })
-      })
+
+    })() // Execute async IIFE
 
     return true
   }
@@ -1473,6 +1546,90 @@ function cleanUrl(url: any): string {
 }
 
 // ============================================
+// DATE-BASED SORTING UTILITIES
+//============================================
+
+/**
+ * Parse date string (YYYY-MM or YYYY-MM-DD) to Date object
+ */
+function parseDateValue(dateStr?: string): Date | null {
+  if (!dateStr) return null
+
+  try {
+    // Handle YYYY-MM format
+    if (dateStr.match(/^\d{4}-\d{2}$/)) {
+      return new Date(dateStr + '-01')
+    }
+    // Handle YYYY-MM-DD format or full date strings
+    return new Date(dateStr)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Sort experience, projects, and education by date (newest first)
+ * - Uses endDate if available, otherwise startDate
+ * - Items without dates are placed at the end
+ * - Current items (no endDate) are placed first
+ */
+function sortByDate<T extends { startDate?: string; endDate?: string }>(
+  items: T[],
+  order: 'desc' | 'asc' = 'desc'
+): T[] {
+  return [...items].sort((a, b) => {
+    const aEndDate = parseDateValue(a.endDate)
+    const bEndDate = parseDateValue(b.endDate)
+    const aStartDate = parseDateValue(a.startDate)
+    const bStartDate = parseDateValue(b.startDate)
+
+    // Current items (no endDate) come first in desc order
+    if (!a.endDate && b.endDate) return order === 'desc' ? -1 : 1
+    if (a.endDate && !b.endDate) return order === 'desc' ? 1 : -1
+
+    // Use endDate for comparison if both have it
+    if (aEndDate && bEndDate) {
+      return order === 'desc'
+        ? bEndDate.getTime() - aEndDate.getTime()
+        : aEndDate.getTime() - bEndDate.getTime()
+    }
+
+    // Fallback to startDate if endDate is missing
+    if (aStartDate && bStartDate) {
+      return order === 'desc'
+        ? bStartDate.getTime() - aStartDate.getTime()
+        : aStartDate.getTime() - bStartDate.getTime()
+    }
+
+    // If only one has a date, the one with date comes first in desc order
+    if (aStartDate && !bStartDate) return order === 'desc' ? -1 : 1
+    if (!aStartDate && bStartDate) return order === 'desc' ? 1 : -1
+
+    // If neither has dates, maintain original order
+    return 0
+  })
+}
+
+/**
+ * Sort education by graduation year (newest first)
+ */
+function sortEducationByGraduation<T extends { graduationYear?: string }>(
+  items: T[],
+  order: 'desc' | 'asc' = 'desc'
+): T[] {
+  return [...items].sort((a, b) => {
+    const aYear = a.graduationYear ? parseInt(a.graduationYear) : 0
+    const bYear = b.graduationYear ? parseInt(b.graduationYear) : 0
+
+    if (aYear === 0 && bYear === 0) return 0
+    if (aYear === 0) return 1 // Items without year go to end
+    if (bYear === 0) return 1
+
+    return order === 'desc' ? bYear - aYear : aYear - bYear
+  })
+}
+
+// ============================================
 // BROWSER-BASED CV PARSING (FREE!)
 // ============================================
 
@@ -1485,6 +1642,7 @@ interface BrowserParsedResult {
     linkedIn?: string
     portfolio?: string
   }
+  summary?: string
   experience: Array<{
     id: string
     role: string
@@ -1509,10 +1667,369 @@ interface BrowserParsedResult {
     description: string
     technologies: string[]
     url?: string
+    startDate?: string
+    endDate?: string
     highlights: string[]
   }>
   confidence: number  // 0-100
   method: 'browser' | 'ai'
+}
+
+/**
+ * Parse multiple projects from raw text using AI
+ * Extracts all projects with name, description, technologies, dates, highlights
+ */
+async function parseProjectsWithAI(
+  context: {
+    rawText: string // Entire projects section raw text
+  },
+  provider: string,
+  apiKey: string,
+  model?: string
+): Promise<Array<{
+  name?: string
+  description?: string
+  technologies?: string[]
+  url?: string
+  startDate?: string
+  endDate?: string
+  highlights?: string[]
+}>> {
+  const prompt = `Parse these projects and return JSON array:
+
+${context.rawText}
+
+For each project extract:
+- name (title)
+- description (2-3 sentences)
+- technologies (array of tech names)
+- url (website/github if any)
+- startDate (when started: MM/YYYY, M/YYYY, YYYY, or "Jan 2022" format)
+- endDate (when ended: MM/YYYY, M/YYYY, YYYY, "Jan 2022" format, or empty if ongoing)
+- highlights (3-4 bullets, each under 80 characters)
+
+Return JSON array only:
+\`\`\`json
+[
+  {"name":"...","description":"...","technologies":[...],"url":"...","startDate":"...","endDate":"","highlights":["• ..."]},
+  {"name":"...","description":"...","technologies":[...],"url":"...","startDate":"...","endDate":"","highlights":["• ..."]}
+]
+\`\`\``
+
+  try {
+    let content = ''
+
+    switch (provider) {
+      case 'openai':
+        const openaiResult = await callOpenAI(apiKey, prompt, model || 'gpt-4o-mini')
+        content = openaiResult || ''
+        break
+      case 'gemini':
+        const geminiResult = await callGemini(apiKey, prompt, model || 'gemini-2.5-flash')
+        content = geminiResult || ''
+        break
+      case 'anthropic':
+        const anthropicResult = await callOpenRouter(apiKey, prompt, model || 'anthropic/claude-3.5-haiku')
+        content = anthropicResult || ''
+        break
+      case 'openrouter':
+        const openrouterResult = await callOpenRouter(apiKey, prompt, model || 'anthropic/claude-3.5-haiku')
+        content = openrouterResult || ''
+        break
+      default:
+        throw new Error(`Unknown provider: ${provider}`)
+    }
+
+    if (!content) {
+      console.warn('[Projects Parser] Empty AI response')
+      return []
+    }
+
+    // Extract JSON array from response
+    const jsonMatch = content.match(/```json\s*(\[[\s\S]*?\])\s*```/) || content.match(/(\[[\s\S]*?\])/)
+    if (jsonMatch) {
+      const result = JSON.parse(jsonMatch[1])
+      console.log('[Projects Parser] Parsed projects:', result.length, 'projects')
+      return result
+    }
+
+    console.warn('[Projects Parser] Failed to parse AI response')
+    return []
+  } catch (error) {
+    console.error('[Projects Parser] Error:', error)
+    return []
+  }
+}
+
+/**
+ * Enhance project details using AI
+ * Parses raw text to extract: name, description, technologies, dates, highlights
+ */
+async function enhanceProjectWithAI(
+  context: {
+    rawText: string // Raw project text block
+    url?: string
+  },
+  provider: string,
+  apiKey: string,
+  model?: string
+): Promise<{
+  name?: string
+  description?: string
+  technologies?: string[]
+  startDate?: string
+  endDate?: string
+  highlights?: string[]
+}> {
+  const prompt = `You are a CV parsing expert. Parse this RAW project text and extract all details:
+
+RAW PROJECT TEXT:
+${context.rawText}
+
+URL: ${context.url || 'None'}
+
+TASK: Extract structured information and return JSON with:
+1. "name": Project name (usually first line or title)
+2. "description": 2-3 sentences describing what this project does
+3. "technologies": Array of technologies used (React, Node.js, Python, etc.)
+4. "startDate": Year or MM/YYYY when project started (if mentioned)
+5. "endDate": Year or MM/YYYY when project ended (if mentioned, empty if ongoing)
+6. "highlights": Array of 3-4 bullet points with REALISTIC achievements (10-90% ranges, specific tech, NO "100%", NO "zero")
+
+EXAMPLES:
+Input: "E-Commerce Website\nBuilt platform. React, Node.js. 2023"
+Output: {"name":"E-Commerce Website","description":"Built a full-stack e-commerce platform with user authentication and payment integration.","technologies":["React","Node.js"],"startDate":"2023","highlights":["• Developed responsive frontend using React","• Built REST APIs with Node.js"]}
+
+Input: "Task App\nVue.js, Firebase app for team collaboration. 2022-2023"
+Output: {"name":"Task App","description":"A task management application with real-time collaboration features.","technologies":["Vue.js","Firebase"],"startDate":"2022","endDate":"2023","highlights":["• Developed real-time sync using Firebase","• Built responsive UI with Vue.js"]}
+
+RULES:
+- If raw text is messy, do your best to extract
+- Technologies = real tech names only (don't invent)
+- Metrics = realistic ranges (20-40%, 500+ users, NOT 100%)
+- Highlights = specific achievements with tech mentioned
+
+Response format (JSON only, no markdown):
+\`\`\`json
+{
+  "name": "...",
+  "description": "...",
+  "technologies": ["...", "..."],
+  "startDate": "...",
+  "endDate": "",
+  "highlights": ["• ...", "• ...", "• ..."]
+}
+\`\`\``
+
+  try {
+    let content = ''
+
+    switch (provider) {
+      case 'openai':
+        const openaiResult = await callOpenAI(apiKey, prompt, model || 'gpt-4o-mini')
+        content = openaiResult || ''
+        break
+      case 'gemini':
+        const geminiResult = await callGemini(apiKey, prompt, model || 'gemini-2.5-flash')
+        content = geminiResult || ''
+        break
+      case 'anthropic':
+        // Use OpenRouter for Anthropic models
+        const anthropicResult = await callOpenRouter(apiKey, prompt, model || 'anthropic/claude-3.5-haiku')
+        content = anthropicResult || ''
+        break
+      case 'openrouter':
+        const openrouterResult = await callOpenRouter(apiKey, prompt, model || 'anthropic/claude-3.5-haiku')
+        content = openrouterResult || ''
+        break
+      default:
+        throw new Error(`Unknown provider: ${provider}`)
+    }
+
+    if (!content) {
+      console.warn('[Project Enhancer] Empty AI response')
+      return {}
+    }
+
+    // Extract JSON from response
+    const jsonMatch = content.match(/```json\s*(\{[\s\S]*?\})\s*```/) || content.match(/(\{[\s\S]*?\})/)
+    if (jsonMatch) {
+      const result = JSON.parse(jsonMatch[1])
+      console.log('[Project Enhancer] Enhanced project:', result.name, result)
+      return result
+    }
+
+    // Fallback: return empty if parsing fails
+    console.warn('[Project Enhancer] Failed to parse AI response')
+    return {}
+  } catch (error) {
+    console.error('[Project Enhancer] Error enhancing project:', error)
+    return {}
+  }
+}
+
+/**
+ * Check if duration is less than 3 months (likely hackathon)
+ */
+function isDurationLessThan3Months(startDate: string, endDate: string): boolean {
+  if (!startDate || !endDate) return false
+
+  // Parse dates
+  const parseDate = (dateStr: string): Date | null => {
+    const match = dateStr.match(/(\d{2})\/(\d{4})/)
+    if (match) {
+      return new Date(parseInt(match[2]), parseInt(match[1]) - 1)
+    }
+    const yearMatch = dateStr.match(/(\w+)\s+(\d{4})/i)
+    if (yearMatch) {
+      const monthMap: Record<string, number> = {
+        'jan': 0, 'feb': 1, 'mar': 2, 'apr': 3, 'may': 4, 'jun': 5,
+        'jul': 6, 'aug': 7, 'sep': 8, 'oct': 9, 'nov': 10, 'dec': 11
+      }
+      return new Date(parseInt(yearMatch[2]), monthMap[yearMatch[1].toLowerCase()] || 0)
+    }
+    return null
+  }
+
+  const start = parseDate(startDate)
+  const end = parseDate(endDate)
+
+  if (!start || !end) return false
+
+  const diffTime = Math.abs(end.getTime() - start.getTime())
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+  const diffMonths = diffDays / 30
+
+  return diffMonths < 3
+}
+
+/**
+ * Extract highlights/bullet points from job text
+ * Preserves metrics like "700+ concurrent users", "500+ monthly users", etc.
+ */
+function extractHighlights(jobText: string): string[] {
+  const highlights: string[] = []
+
+  // Split by common bullet characters and patterns
+  const bulletPatterns = [
+    /\n[•\-\*]\s*([^\n]+)/g,           // •, -, * followed by text
+    /\n\d+\.\s*([^\n]+)/g,             // 1. 2. 3. numbered lists
+    /\n▪\s*([^\n]+)/g,                 // Square bullets
+    /\n◦\s*([^\n]+)/g,                 // Circle bullets
+  ]
+
+  for (const pattern of bulletPatterns) {
+    let match
+    pattern.lastIndex = 0 // Reset regex state
+    while ((match = pattern.exec(jobText)) !== null) {
+      const highlight = match[1]?.trim()
+      if (highlight && highlight.length > 10 && highlight.length < 500) {
+        // Filter out common false positives
+        if (!highlight.match(/^(https?:\/\/|www\.)/i) &&
+          !highlight.match(/^(email|phone|mobile|tel):/i) &&
+          !highlight.match(/^[A-Z][a-z]+,\s+[A-Z][a-z]+,\s+\d{4}/)) { // Not a person name pattern
+          highlights.push(highlight)
+        }
+      }
+    }
+  }
+
+  // If no bullets found, try to split by newlines and find action-oriented lines
+  if (highlights.length === 0) {
+    const lines = jobText.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 15)
+
+    for (const line of lines) {
+      // Look for action verbs and metrics patterns
+      const actionVerbs = /^(developed|built|designed|implemented|created|managed|led|optimized|reduced|increased|improved|achieved|launched|scaled|architected|engineered|deployed|configured|integrated|refactored|streamlined|automated|monitored|analyzed|tested|documented|trained|mentored|collaborated|coordinated)/i
+
+      // Look for metrics patterns (PRESERVES NUMBERS!)
+      const hasMetrics = /\d+%?\s*(users?|transactions?|developers?|downloads?|customers?|clients?|requests?|calls?|messages?|emails?|views?|visitors?|subscribers?|members?|projects?|products?|services?|teams?|partners?|investors?|employees?|students?|teachers?|courses?|lessons?|hours?|days?|weeks?|months?|years?)?/i.test(line)
+
+      if (actionVerbs.test(line) || hasMetrics) {
+        highlights.push(line)
+      }
+    }
+  }
+
+  // Deduplicate highlights
+  const uniqueHighlights = [...new Set(highlights)]
+
+  // Limit to 8 highlights per job
+  return uniqueHighlights.slice(0, 8)
+}
+
+/**
+ * 🚨 HR VALIDATION LAYER
+ * Check for red flags that can get candidates rejected
+ */
+function validateCVForHR(parsedCV: ParsedCV): string[] {
+  const warnings: string[] = []
+
+  // 1. Check for unrealistic metrics in highlights
+  if (parsedCV.experience) {
+    parsedCV.experience.forEach((exp, index) => {
+      if (exp.highlights) {
+        exp.highlights.forEach((highlight, hIndex) => {
+          // Check for unrealistic metrics
+          if (highlight.includes('100%') || highlight.includes('/100')) {
+            warnings.push(`❌ Experience #${index + 1}: "100%" is unrealistic - recruiters will ask for proof`)
+          }
+          if (highlight.toLowerCase().includes('zero ') || highlight.includes('0 errors') || highlight.includes('0 bugs')) {
+            warnings.push(`❌ Experience #${index + 1}: "Zero errors/bugs" is unverifiable - sounds fake`)
+          }
+          if (highlight.includes('95% user satisfaction') || highlight.includes('100% satisfaction')) {
+            warnings.push(`❌ Experience #${index + 1}: "95% satisfaction" without survey data is suspicious`)
+          }
+        })
+      }
+    })
+  }
+
+  // 2. Check for missing GitHub (critical for developers)
+  const hasGitHub = !!(parsedCV.personal?.portfolio && parsedCV.personal.portfolio.includes('github'))
+  const isDeveloperRole = parsedCV.professional?.currentTitle?.toLowerCase().match(/developer|engineer|programmer|coder/)
+  if (isDeveloperRole && !hasGitHub) {
+    warnings.push('❌ Missing GitHub URL - Full Stack developers must have GitHub portfolio!')
+  }
+
+  // 3. Check for undated projects
+  if (parsedCV.projects) {
+    const undatedProjects = parsedCV.projects.filter(p => !p.startDate && !p.endDate)
+    if (undatedProjects.length > 0) {
+      warnings.push(`⚠️ ${undatedProjects.length} project(s) have no dates - recruiters will ask "When did you work on this?"`)
+    }
+  }
+
+  // 4. Check for same-month jobs (likely misclassified hackathons)
+  if (parsedCV.experience) {
+    parsedCV.experience.forEach((exp, index) => {
+      const startMonth = exp.startDate
+      const endMonth = exp.endDate || (exp.current ? 'Present' : '')
+      if (startMonth && endMonth && startMonth.substring(3) === endMonth.substring(3)) {
+        const combined = `${exp.company} ${exp.role}`.toLowerCase()
+        if (!combined.includes('hackathon') && !exp.role.toLowerCase().includes('participant')) {
+          warnings.push(`⚠️ Experience #${index + 1}: Same month duration (${startMonth} to ${endMonth}) - likely hackathon`)
+        }
+      }
+    })
+  }
+
+  // 5. Check for truncated summary
+  if (!parsedCV.professional?.summary || parsedCV.professional.summary.length < 50) {
+    warnings.push('⚠️ Summary too short or missing - add more details about your skills and goals')
+  }
+
+  // 6. Check for NASA Hackathon specifically
+  if (parsedCV.experience) {
+    parsedCV.experience.forEach((exp, index) => {
+      const combined = `${exp.company} ${exp.role} ${exp.startDate || ''}`.toLowerCase()
+      if (combined.includes('nasa') && combined.includes('hackathon')) {
+        warnings.push(`❌ NASA Hackathon in Experience section #${index + 1} - Should be in Projects!`)
+      }
+    })
+  }
+
+  return warnings
 }
 
 /**
@@ -1591,7 +2108,7 @@ export function parseCVWithBrowser(cvText: string): BrowserParsedResult {
     }
   }
 
-  // ========== 4. Extract LinkedIn/Portfolio ==========
+  // ========== 4. Extract LinkedIn/GitHub/Portfolio URLs (CRITICAL for Developers!) ==========
   const linkedinMatch = cvText.match(/linkedin\.com\/in\/[\w\-]+/i)
   if (linkedinMatch) {
     result.personal.linkedIn = linkedinMatch[0]
@@ -1599,11 +2116,62 @@ export function parseCVWithBrowser(cvText: string): BrowserParsedResult {
     fieldsFound.push('linkedin')
   }
 
-  const portfolioMatch = cvText.match(/(?:portfolio|github|gitlab)\.?\s*[:\-]?\s*([^\s\n]+)/i)
-  if (portfolioMatch) {
-    result.personal.portfolio = portfolioMatch[1]
+  // Extract GitHub URLs (multiple patterns)
+  const githubPatterns = [
+    /github\.com\/[\w\-]+/i,
+    /github[:\s]*["']?([\w.\-\/]+)/i,
+    /(?:github|git)[:\s]*(https?:\/\/[^\s]+|www\.[^\s]+|github\.com[^\s]*)/i,
+    /Portfolio[:\s]*(https?:\/\/github\.com[^\s]+|www\.github\.com[^\s]+)/i
+  ]
+
+  for (const pattern of githubPatterns) {
+    const githubMatch = cvText.match(pattern)
+    if (githubMatch) {
+      const githubUrl = githubMatch[1]?.replace(/^www\./, 'https://').replace(/^github\.com/, 'https://github.com') || githubMatch[0]
+      // Clean up the URL
+      const cleanGithubUrl = githubUrl.includes('http') ? githubUrl : `https://github.com/${githubUrl}`
+      result.personal.portfolio = cleanGithubUrl
+      score += 5
+      fieldsFound.push('github')
+      break
+    }
+  }
+
+  // Portfolio/GitLab URLs
+  const portfolioMatch = cvText.match(/(?:portfolio|gitlab|bitbucket)\.?\s*[:\-]?\s*([^\s\n]+)/i)
+  if (portfolioMatch && !result.personal.portfolio) {
+    let portfolioUrl = portfolioMatch[1]
+    // Clean up URL if needed
+    if (!portfolioUrl.includes('http') && !portfolioUrl.includes('www')) {
+      portfolioUrl = `https://${portfolioUrl}`
+    }
+    result.personal.portfolio = portfolioUrl
     score += 5
     fieldsFound.push('portfolio')
+  }
+
+  // ========== 4.5. Extract Professional Summary (Preserve Keywords!) ==========
+  const summaryPatterns = [
+    /(?:Summary|Professional Summary|Profile|About|Objective)\s*:?\s*(.+?)(?=\n\n|Experience|Education|Skills|Technical|Projects|Languages|$)/is,
+    /(?:Summary|Profile|About)\s*\n(.+?)\n(?=\n*[A-Z][a-z]+.*?\n|Experience|Education|Skills|$)/i
+  ]
+
+  for (const pattern of summaryPatterns) {
+    const match = cvText.match(pattern)
+    if (match && match[1].trim().length > 20) {
+      let summaryText = match[1].trim()
+      // Clean up extra whitespace and newlines
+      summaryText = summaryText.replace(/\s+/g, ' ').replace(/\n+/g, ' ').trim()
+
+      // Increase limit and preserve important keywords
+      if (summaryText.length > 50 && summaryText.length < 1000) {
+        result.summary = summaryText.substring(0, 800)
+        score += 5
+        fieldsFound.push('summary')
+        console.log('[Browser CV Parser] ✅ Summary extracted:', summaryText.substring(0, 100))
+      }
+      break
+    }
   }
 
   // ========== 5. Extract Experience (Multiple section names) ==========
@@ -1631,6 +2199,9 @@ export function parseCVWithBrowser(cvText: string): BrowserParsedResult {
         /(.+?)\s*-\s*(.+?)\s*[\(\[]?(\d{2}\/\d{4}|\w+ \d{4}|Present)/gi
       ]
 
+      // First, extract all job entries with their positions
+      const jobEntries: Array<{ match: RegExpExecArray, position: number, company: string, role: string, startDate: string }> = []
+
       for (const jobPattern of jobPatterns) {
         let jobMatch
         while ((jobMatch = jobPattern.exec(expText)) !== null && expCount < 10) {
@@ -1638,21 +2209,43 @@ export function parseCVWithBrowser(cvText: string): BrowserParsedResult {
           const role = jobMatch[2]?.trim() || ''
 
           if (company.length > 2 && role.length > 2) {
-            result.experience.push({
-              id: `exp_${Date.now()}_${expCount}`,
+            jobEntries.push({
+              match: jobMatch,
+              position: jobMatch.index,
               company,
               role,
-              startDate: jobMatch[3] || '',
-              endDate: '',
-              current: jobMatch[3]?.toLowerCase() === 'present' || jobMatch[3]?.toLowerCase() === 'current',
-              highlights: [],
-              skills: []
+              startDate: jobMatch[3] || ''
             })
             expCount++
           }
         }
-        if (expCount > 0) break
+        if (jobEntries.length > 0) break
       }
+
+      // Now extract highlights for each job entry
+      jobEntries.forEach((jobEntry, index) => {
+        const startIndex = jobEntry.position
+        // Find the end of this job (start of next job or end of section)
+        const endIndex = index < jobEntries.length - 1
+          ? jobEntries[index + 1].position
+          : expText.length
+
+        const jobText = expText.substring(startIndex, endIndex)
+
+        // Extract bullet points/highlights from this job's text
+        const highlights = extractHighlights(jobText)
+
+        result.experience.push({
+          id: `exp_${Date.now()}_${index}`,
+          company: jobEntry.company,
+          role: jobEntry.role,
+          startDate: jobEntry.startDate,
+          endDate: '',
+          current: jobEntry.startDate.toLowerCase() === 'present' || jobEntry.startDate.toLowerCase() === 'current',
+          highlights,
+          skills: []
+        })
+      })
 
       if (result.experience.length > 0) {
         score += 25
@@ -1660,6 +2253,44 @@ export function parseCVWithBrowser(cvText: string): BrowserParsedResult {
       }
       break
     }
+  }
+
+  // ========== 5.1. Fix Hackathon Misclassification ==========
+  // Move hackathon entries from Experience to Projects section
+  if (result.experience.length > 0) {
+    const hackathonIndices: number[] = []
+
+    result.experience.forEach((exp, index) => {
+      const combinedText = `${exp.company} ${exp.role}`.toLowerCase()
+      const isShortDuration = isDurationLessThan3Months(exp.startDate || '', exp.endDate || '')
+
+      // Detect hackathons
+      if (combinedText.includes('hackathon') ||
+          combinedText.includes('hack-a-thon') ||
+          isShortDuration ||
+          exp.role.toLowerCase().includes('participant') ||
+          exp.role.toLowerCase().includes('hackathon')) {
+        hackathonIndices.push(index)
+      }
+    })
+
+    // Move hackathons to projects (in reverse order to maintain indices)
+    hackathonIndices.reverse().forEach(index => {
+      const hackathonExp = result.experience.splice(index, 1)[0]
+
+      result.projects.push({
+        id: `proj_${Date.now()}_${result.projects.length}`,
+        name: `${hackathonExp.company} - ${hackathonExp.role}`.substring(0, 100),
+        description: `Hackathon participation - ${hackathonExp.startDate || ''}`,
+        technologies: [],
+        url: '',
+        startDate: hackathonExp.startDate,
+        endDate: hackathonExp.endDate || hackathonExp.startDate,
+        highlights: hackathonExp.highlights
+      })
+
+      console.log('[Browser CV Parser] ✅ Moved hackathon from Experience to Projects:', hackathonExp.company)
+    })
   }
 
   // ========== 6. Extract Education ==========
@@ -1728,6 +2359,40 @@ export function parseCVWithBrowser(cvText: string): BrowserParsedResult {
         score += 10
         fieldsFound.push('skills')
       }
+      break
+    }
+  }
+
+  // ========== 7. Extract Projects ==========
+  // Just grab entire Projects section - AI will parse and split everything!
+  const projPatterns = [
+    /Projects?\s*:?\s*([\s\S]+?)(?=\n\n\s*[A-Z][a-z]+\s*:|Experience|Education|Certifications|Skills|Technical|Languages|References|$)/is,
+    /Personal\s+Projects?\s*:?\s*([\s\S]+?)(?=\n\n\s*[A-Z][a-z]+\s*:|Experience|Education|Certifications|Skills|Technical|Languages|References|$)/is
+  ]
+
+  for (const pattern of projPatterns) {
+    const match = cvText.match(pattern)
+    if (match && match[1].trim().length > 20) {
+      const projText = match[1].trim()
+
+      console.log('[Browser CV Parser] 📦 Projects section found (RAW):', projText.substring(0, 150))
+
+      // Store entire projects section as ONE block - AI will parse and split!
+      result.projects.push({
+        id: `proj_raw_${Date.now()}`,
+        name: '',
+        description: projText, // Entire raw text
+        technologies: [],
+        url: '',
+        startDate: '',
+        endDate: '',
+        highlights: []
+      })
+
+      console.log('[Browser CV Parser] 📦 Stored raw projects text for AI parsing')
+
+      score += 5
+      fieldsFound.push('projects')
       break
     }
   }
@@ -2081,6 +2746,8 @@ CRITICAL RULES:
         description: proj.d || '',
         technologies: Array.isArray(proj.tech) ? proj.tech : [],
         url: proj.url || undefined,
+        startDate: proj.s || undefined,
+        endDate: proj.e || undefined,
         highlights: Array.isArray(proj.high) ? proj.high : []
       })),
       education: (Array.isArray(parsed.edu) ? parsed.edu : [])
@@ -2116,7 +2783,7 @@ CRITICAL RULES:
       parsedAt: Date.now()
     })
 
-    console.log('✅ [DEBUG] Hybrid Parser - Validated skills:', JSON.stringify(validatedData.skills, null, 2))
+    console.log('[DEBUG] Hybrid Parser - Validated skills:', JSON.stringify(validatedData.skills, null, 2))
 
     console.log(`[Hybrid Parser][${parseId}] ✅ Success! Tokens: ${totalTokens}, Cost: $${totalCost.toFixed(6)}`)
 
@@ -2251,6 +2918,107 @@ async function saveTokenUsage(
   }
 }
 
+/**
+ * 🤖 Generate Professional Bullet Points with AI
+ * For noob CVs that don't have proper bullet points
+ */
+async function generateBulletsWithAI(
+  context: {
+    projectName?: string
+    company?: string
+    role?: string
+    techStack?: string[]
+    description?: string
+    url?: string
+  },
+  provider: string,
+  apiKey: string,
+  model?: string
+): Promise<string[]> {
+  try {
+    const prompt = `You are a CV writing expert. Generate 3-5 professional bullet points for a project/experience.
+
+CONTEXT:
+${context.projectName ? `Project/Role: ${context.projectName}` : ''}
+${context.company ? `Company: ${context.company}` : ''}
+${context.role ? `Position: ${context.role}` : ''}
+${context.techStack ? `Tech Stack: ${context.techStack.join(', ')}` : ''}
+${context.description ? `Description: ${context.description}` : ''}
+${context.url ? `Link: ${context.url}` : ''}
+
+CRITICAL HR REQUIREMENTS:
+1. Start with action verbs (Developed, Built, Designed, Implemented, Created, Managed, Led, Optimized, etc.)
+2. Use REALISTIC metrics ONLY (10-90% ranges, not 100%, not "zero", not absolute claims)
+3. Focus on TECHNICAL ACHIEVEMENTS, not unverifiable business metrics
+4. Use VAGUE but IMPRESSIVE language when exact metrics aren't provided: "significantly improved", "reduced load times", "enhanced user experience"
+5. NEVER claim 100%, zero errors, or perfect stats (recruiters will question these!)
+6. Mention SPECIFIC technologies used
+7. Keep each bullet UNDER 80 characters (one line only)
+
+BAD EXAMPLES (Avoid):
+- "Automated 100% of workflows" (unrealistic)
+- "Zero security breaches" (cannot prove)
+- "95% user satisfaction" (how measured?)
+- "All projects on time" (too absolute)
+
+GOOD EXAMPLES (Use):
+- "Developed automation tools reducing manual data entry by 30-40%"
+- "Implemented secure authentication with industry best practices"
+- "Built responsive web applications serving 500+ daily users"
+- "Optimized database queries reducing response times significantly"
+- "Enhanced user experience through modern UI/UX practices"
+
+Generate ONLY bullet points, one per line. No intro/outro.
+
+Format:
+• [action verb] [technical achievement] using [tech]
+• [action verb] [what you built] for [purpose] using [tech]
+• [action verb] [realistic metric or improvement] using [tech]`
+
+    // Create provider config object
+    let content: string | null = null
+
+    switch (provider) {
+      case 'openai':
+        content = await callOpenAI(apiKey, prompt, model || 'gpt-4o-mini')
+        break
+      case 'gemini':
+        content = await callGemini(apiKey, prompt, model || 'gemini-2.5-flash')
+        break
+      case 'zhipu':
+        content = await callZhipu(apiKey, prompt, model || 'glm-4')
+        break
+      case 'openrouter':
+        const result = await callOpenRouterWithFallback(apiKey, prompt, model || 'nvidia/nemotron-3-nano-30b-a3b:free')
+        content = result.content
+        break
+      default:
+        throw new Error('Unknown provider')
+    }
+
+    if (content) {
+      // Extract bullet points from response
+      const bullets = content
+        .split('\n')
+        .map((line: string) => line.trim())
+        .filter((line: string) => {
+          // Remove bullet characters and keep the text
+          const cleaned = line.replace(/^[•\-\*]\s*/, '').trim()
+          return cleaned.length > 20 && cleaned.length < 200
+        })
+        .map((line: string) => line.replace(/^[•\-\*]\s*/, '').trim())
+
+      console.log('[AI Bullet Generator] Generated bullets:', bullets)
+      return bullets.slice(0, 5) // Max 5 bullets
+    }
+
+    return []
+  } catch (error) {
+    console.error('[AI Bullet Generator] Error:', error)
+    return []
+  }
+}
+
 export async function parseCVWithAI(cvText: string, provider: string, apiKey: string, model?: string): Promise<ParsedCV | null> {
   const parseId = `parse_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
   console.log(`[CV Parsing][${parseId}] Starting...`, { provider, model, cvTextLength: cvText.length })
@@ -2264,51 +3032,61 @@ export async function parseCVWithAI(cvText: string, provider: string, apiKey: st
   }
   lastParseRequestTime = Date.now()
 
-  const prompt = `Extract skills from CV and create DYNAMIC categories.
+  const prompt = `Extract from CV. Create DYNAMIC skill categories. Write bullet points with metrics.
 
-CRITICAL RULES:
-1. NO DUPLICATES: Each skill MUST appear in EXACTLY ONE category. If "JavaScript" is in "Frontend", it CANNOT appear in "Backend" or any other category.
-2. Create 4-8 logical categories based on skill patterns found in the CV
-3. Use descriptive category names (e.g., "Frontend Development" not just "Frontend")
-4. Group RELATED skills that are used together:
-   - React, Vue, Angular, JavaScript, TypeScript, HTML/CSS → "Frontend Development"
-   - Node.js, Python, Java, Express, Django, API Design → "Backend Development"
-   - PostgreSQL, MongoDB, MySQL, Redis → "Databases"
-   - AWS, Docker, Kubernetes, CI/CD → "Cloud & DevOps"
-   - Excel, PowerBI, Tableau, SQL → "Data Analysis Tools"
-   - React Native, Flutter, Swift, Kotlin → "Mobile Development"
-5. If a skill doesn't fit any category → "Other Skills"
-6. Language skills (English, Bangla, etc.) → "Languages" category
-7. DO NOT create single-skill categories (minimum 2 skills per category unless it's "Languages")
-8. DO NOT create too-specific categories (e.g., don't separate "React Hooks" from "React")
+SKILL CATEGORIES (4-8 logical groups, NO duplicates):
+- Frontend: React, Vue, Angular, JavaScript, TypeScript, HTML/CSS
+- Backend: Node.js, Python, Java, Express, Django, API Design
+- Databases: PostgreSQL, MongoDB, MySQL, Redis
+- Cloud & DevOps: AWS, Docker, Kubernetes, CI/CD
+- Mobile: React Native, Flutter, Swift, Kotlin
+- Data Analysis: Excel, PowerBI, Tableau, SQL
+- Languages: English, Bangla, etc. (separate category)
 
-ANTI-PATTERNS (What NOT to do):
-❌ Don't repeat tools across categories
-❌ Don't create categories with just 1 skill (except Languages)
-❌ Don't mix languages (English/Bangla) with  skills
+EXPERIENCE BULLETS (Each bullet = DIFFERENT metric, Transform "Built X" → "Improved Y by Z%"):
+❌ "Built secure systems with Next.js, Node.js, PostgreSQL"
+✅ "Architected backend achieving 99.9% uptime, handling 700+ concurrent users with PostgreSQL pooling"
+
+METRIC TYPES (Mix these, NEVER repeat same metric):
+- Users: "700+ active students", "50+ DAU", "200+ monthly users"
+- Performance: "99.9% uptime", "sub-2s load", "60% faster", "sub-100ms response"
+- Business: "zero transaction failures", "$10K+ monthly revenue", "70% cost reduction"
+- Time: "reduced by 60%", "70% faster creation", "saved 20hrs/week"
+- Scale: "100+ daily bookings", "2-year production", "50+ concurrent users"
+- Technical: "99.9% API success", "zero bugs in production", "99.5% coverage"
+
+PROJECT PRESENTATION (Make EVERY project sound like REAL PRODUCT):
+❌ AVOID: "Built to learn React", "Practice project", "Learning app", "Simple app"
+✅ INSTEAD: Use "platform", "solution", "system", "application"
+✅ INSTEAD: Focus on PROBLEMS SOLVED, not "what I learned"
+✅ INSTEAD: Use metrics - "100+ test users", "demoed to 10+ stakeholders"
+✅ INSTEAD: Business language - "streamlined workflow", "automated process"
+
+EXTRACT PROJECT METRICS (For EACH project in CV):
+Detect project name automatically. Extract: user counts, performance metrics, business impact, technical metrics.
+Extract EXACT metrics as mentioned in CV.
 
 CV TEXT:
 ${cvText}
 
-Return ONLY this JSON structure (create YOUR OWN category names dynamically):
+Return ONLY this JSON (create YOUR OWN category names):
 {
   "personal": {"f":"","l":"","e":"","p":"","city":"","c":"","linkedIn":"","portfolio":"","github":""},
   "pro": {"title":"","sum":"","yoe":0},
-  "skills": {
-    "YOUR_CATEGORY_NAME": ["skill1", "skill2", "skill3"],
-    "ANOTHER_CATEGORY": ["skill4", "skill5"]
-  },
+  "skills": {"CATEGORY_NAME": ["skill1", "skill2"]},
   "exp": [{"id":"","r":"","c":"","s":"","e":"","current":false,"high":[],"sk":[]}],
-  "proj": [{"id":"","n":"","d":"","tech":[],"url":"","high":[]}],
+  "proj": [{"id":"","n":"","d":"","tech":[],"url":"","s":"","e":"","high":[]}],
   "edu": [{"id":"","deg":"","sch":"","f":"","y":""}]
 }
 
 Dates: "Jan 2020". YOE: number. JSON only.
 IMPORTANT:
-- Ensure all string values are properly escaped (especially double quotes inside strings)
-- Never include markdown formatting
-- Create YOUR OWN category names based on the CV content
-- DO NOT use the placeholder names "YOUR_CATEGORY_NAME" or "ANOTHER_CATEGORY"`
+- Escape double quotes in strings
+- No markdown
+- Create YOUR OWN category names (not "CATEGORY_NAME")
+- For exp[].high[]: UNIQUE metrics per bullet, "Improved Y by Z%" format
+- For proj[].high[]: Present as REAL PRODUCT - "platform/solution", not "learning project"
+`
 
   let content: string | null = null
   let jsonString: string = ''
@@ -2458,13 +3236,15 @@ IMPORTANT:
         highlights: Array.isArray(exp.high) ? exp.high : [],
         skills: Array.isArray(exp.sk) ? exp.sk : [],
       })),
-      // 🎯 Map projects array fields (n→name, d→description, tech→technologies, high→highlights)
+      // 🎯 Map projects array fields (n→name, d→description, tech→technologies, s→startDate, e→endDate, high→highlights)
       projects: (Array.isArray(parsed.proj) ? parsed.proj : []).map((proj: any) => ({
         id: proj.id || '',
         name: proj.n || '',
         description: proj.d || '',
         technologies: Array.isArray(proj.tech) ? proj.tech : [],
         url: proj.url || undefined,
+        startDate: proj.s || undefined,
+        endDate: proj.e || undefined,
         highlights: Array.isArray(proj.high) ? proj.high : [],
       })),
       // 🎯 Map education array fields (deg→degree, sch→school, f→field, y→graduationYear)

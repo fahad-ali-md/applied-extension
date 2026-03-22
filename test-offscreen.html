@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>HTML to PDF</title>
+</head>
+
+<body>
+
+  <div id="content">
+    <h1>Hello Fahad 🚀</h1>
+    <p>This PDF is generated using html2pdf.js</p>
+  </div>
+
+  <button onclick="generatePDF()">Download PDF</button>
+
+  <!-- html2pdf CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <script>
+    function generatePDF() {
+      const element = document.getElementById('content');
+
+      html2pdf()
+        .set({
+          margin: 10,
+          filename: 'my-file.pdf',
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 2 },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        })
+        .from(element)
+        .save();
+    }
+  </script>
+
+</body>
+
+</html>

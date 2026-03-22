@@ -3,24 +3,22 @@
  *
  * Main workflow:
  * 1. Get CV JSON data from chrome.storage
- * 2. Convert to LaTeX
- * 3. Compile LaTeX to PDF
- * 4. Upload PDF to form inputs
+ * 2. Generate PDF directly from CV data
+ * 3. Upload PDF to form inputs
  */
 
 import { getCVData } from './storageHelpers'
 import {
-  generateLatexCV,
   validateCVData,
   hasMinimumCVData,
   getCVStats,
   type CVData
 } from './latexGenerator'
 import {
-  compileLatexToPDF,
+  generatePDFWithPuppeteer,
   getPDFSize,
   pdfBlobToBase64
-} from './pdfCompiler'
+} from './puppeteerPDFGenerator'
 
 // ============================================
 // Types
@@ -82,6 +80,42 @@ export async function executeCVWorkflow(
 
     progress('STORAGE', `✓ CV data loaded (${JSON.stringify(cvData).length} bytes)`)
 
+    // Enhance education data with estimated start dates if missing
+    if (cvData.education && Array.isArray(cvData.education)) {
+      cvData.education = cvData.education.map((edu: any) => {
+        // If startDate already exists, keep it
+        if (edu.startDate) {
+          return edu
+        }
+
+        // Estimate startDate from graduationYear
+        if (edu.graduationYear) {
+          const gradYear = parseInt(edu.graduationYear.toString())
+          if (!isNaN(gradYear)) {
+            // Estimate duration based on degree type
+            const degree = (edu.degree || '').toLowerCase()
+            let estimatedYears = 4 // Default for bachelor's
+
+            if (degree.includes('master') || degree.includes('mtech') || degree.includes('ms') || degree.includes('m.sc')) {
+              estimatedYears = 2
+            } else if (degree.includes('phd') || degree.includes('doctorate')) {
+              estimatedYears = 5
+            } else if (degree.includes('associate') || degree.includes('diploma')) {
+              estimatedYears = 2
+            } else if (degree.includes('high school') || degree.includes('12th') || degree.includes('higher secondary')) {
+              estimatedYears = 2
+            }
+
+            const startYear = gradYear - estimatedYears
+            // Use August as typical start month
+            return { ...edu, startDate: `${startYear}-08` }
+          }
+        }
+
+        return edu
+      })
+    }
+
     // Validate CV data
     if (!validateCVData(cvData)) {
       const error = 'Invalid CV data structure'
@@ -103,36 +137,20 @@ export async function executeCVWorkflow(
     result.stagesCompleted.push('storage')
 
     // ========================================
-    // Stage 2: Generate LaTeX
+    // Stage 2: Compile PDF directly from CV data
     // ========================================
-    progress('LATEX', 'Generating LaTeX CV...')
+    progress('PDF', 'Generating CV PDF with Puppeteer...')
 
-    const latexContent = generateLatexCV(cvData as CVData)
-
-    if (!latexContent) {
-      const error = 'Failed to generate LaTeX content'
-      progress('ERROR', error)
-      options.onError?.(error)
-      result.error = error
-      return result
-    }
-
-    progress('LATEX', `✓ LaTeX generated (${latexContent.length} characters)`)
-    result.stagesCompleted.push('latex')
-
-    // Log LaTeX preview for debugging
-    console.log('[CV Workflow] LaTeX Preview:', latexContent.substring(0, 500))
-
-    // ========================================
-    // Stage 3: Compile PDF
-    // ========================================
-    progress('PDF', 'Compiling LaTeX to PDF...')
-
-    const compileResult = await compileLatexToPDF(latexContent, {
+    const compileResult = await generatePDFWithPuppeteer(cvData as any, {
       filename: options.filename || 'cv.pdf',
-      fontSize: 11,
-      lineHeight: 7,
-      margin: 20
+      format: 'A4',
+      printBackground: true,
+      margin: {
+        top: '10mm',
+        bottom: '10mm',
+        left: '10mm',
+        right: '10mm'
+      }
     })
 
     if (!compileResult.success || !compileResult.pdfBlob) {
@@ -315,61 +333,9 @@ export async function handleCVWorkflowMessage(
 
   try {
     switch (message.action) {
-      case 'generateCV': {
-        const result = await generateAndDownloadCV(
-          message.filename || 'cv.pdf'
-        )
-
-        console.log('[CV Workflow] generateCV result:', {
-          success: result.success,
-          hasPdfBlob: !!result.pdfBlob,
-          pdfSize: result.pdfSize,
-          stagesCompleted: result.stagesCompleted
-        })
-
-        // Convert Blob to base64 for chrome messaging
-        if (result.success && result.pdfBlob) {
-          const base64 = await pdfBlobToBase64(result.pdfBlob)
-          console.log('[CV Workflow] Converted blob to base64, length:', base64.length)
-          sendResponse?.({
-            ...result,
-            pdfBlob: null, // Remove Blob
-            pdfBase64: base64 // Send base64 instead
-          })
-        } else {
-          console.error('[CV Workflow] No pdfBlob in result!')
-          sendResponse?.(result)
-        }
-        break
-      }
-
+      case 'generateCV':
       case 'generateAndUploadCV': {
-        const result = await executeCVWorkflow({
-          filename: message.filename || 'cv.pdf',
-          autoUpload: true,
-          onProgress: (stage, msg) => {
-            // Send progress updates
-            chrome.runtime.sendMessage({
-              type: 'cv_workflow_progress',
-              stage,
-              message: msg
-            }).catch(() => {
-              // Ignore errors if no listener
-            })
-          }
-        })
-
-        // Convert Blob to base64 for chrome messaging (for preview)
-        if (result.success && result.pdfBlob) {
-          const base64 = await pdfBlobToBase64(result.pdfBlob)
-          sendResponse?.({
-            ...result,
-            pdfBlob: null, // Remove Blob
-            pdfBase64: base64 // Send base64 instead
-          })
-        } else {
-          sendResponse?.(result)
-        }
+        sendResponse?.({ success: false, error: 'PDF generation is no longer supported in the background script. Use frontend generators.' })
         break
       }
 
@@ -413,9 +379,8 @@ export async function handleCVWorkflowMessage(
 export function setupCVWorkflowListener(): void {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Handle CV workflow messages asynchronously
-    if (message.action?.startsWith('generateCV') ||
-        message.action === 'checkCVData' ||
-        message.action === 'getCVStats') {
+    if (message.action === 'checkCVData' ||
+      message.action === 'getCVStats') {
       handleCVWorkflowMessage(message, sender, sendResponse)
       return true // Keep message channel open for async response
     }

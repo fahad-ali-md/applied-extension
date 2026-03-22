@@ -45,6 +45,10 @@ SKILLS.md
 !README.md
 !CHANGELOG.md
 
+# Project planning (GSD workflow) - track these
+!.planning/*.md
+!.planning/*.json
+
 # Debug/test scripts and personal files
 debug-*.js
 check-*.js
@@ -54,3 +58,4 @@ check-*.js
 # Sample data
 sample-data/
 *.json
+!.planning/*.json

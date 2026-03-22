@@ -130,8 +130,8 @@ function cleanExtractedText(text: string): string {
 export function isPDFFile(file: File): boolean {
   const fileName = file.name.toLowerCase()
   return fileName.endsWith('.pdf') ||
-         file.type === 'application/pdf' ||
-         file.type.includes('pdf')
+    file.type === 'application/pdf' ||
+    file.type.includes('pdf')
 }
 
 /**
@@ -145,9 +145,9 @@ export async function isPDFContent(file: File): Promise<boolean> {
 
     // PDF files start with "%PDF" (0x25 0x50 0x44 0x46)
     return uint8Array[0] === 0x25 &&
-           uint8Array[1] === 0x50 &&
-           uint8Array[2] === 0x44 &&
-           uint8Array[3] === 0x46
+      uint8Array[1] === 0x50 &&
+      uint8Array[2] === 0x44 &&
+      uint8Array[3] === 0x46
   } catch {
     return false
   }

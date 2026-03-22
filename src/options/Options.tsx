@@ -1,8 +1,31 @@
-import { useState, useEffect, useRef, DragEvent } from 'react'
+import { useState, useEffect, useRef, DragEvent as ReactDragEvent } from 'react'
 import { DashboardProvider, useNav, usePlan, useSync } from '../contexts/DashboardContext'
 import { extractTextFromPDF, isPDFFile, isPDFContent } from '../utils/pdfExtractor'
 import { CVGenerator } from '../popup/components/CVGenerator'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import './Options.css'
+
+// Helper function to format date (supports any format - universal pass-through)
+function formatDate(dateStr: string): string {
+  if (!dateStr) return ''
+  return dateStr // Display whatever format was parsed
+}
 
 // Storage keys
 const STORAGE_KEYS = {
@@ -48,6 +71,8 @@ interface Project {
   description: string
   technologies: string[]
   url?: string
+  startDate?: string
+  endDate?: string
   highlights: string[]
   visibleInCV: boolean
 }
@@ -141,6 +166,622 @@ const Sidebar = () => {
 }
 
 // ============================================
+// SORTABLE PROJECT COMPONENT
+//============================================
+
+interface SortableProjectProps {
+  project: Project
+  index: number
+  editableCV: ParsedCV | null
+  setEditableCV: (cv: ParsedCV | null) => void
+}
+
+const SortableProject = ({ project, index, editableCV, setEditableCV }: SortableProjectProps) => {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: project.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} className={`project-card-draggable ${isExpanded ? 'expanded' : 'collapsed'}`}>
+      <div style={{
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        borderRadius: '0.5rem',
+        background: 'rgba(15, 23, 42, 0.5)',
+        cursor: isDragging ? 'grabbing' : 'grab',
+        transition: 'all 0.2s ease',
+        overflow: 'hidden',
+      }}>
+        {/* Header - Always Visible */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '1rem',
+          borderBottom: isExpanded ? '1px solid rgba(255, 255, 255, 0.1)' : 'none',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1 }}>
+            <span
+              className="material-symbols-outlined drag-handle"
+              {...attributes}
+              {...listeners}
+              style={{ cursor: 'grab', color: 'var(--text-slate-400)', fontSize: '20px' }}
+            >
+              drag_indicator
+            </span>
+            <h4 style={{ margin: 0, fontSize: '1rem' }}>
+              Project #{index + 1}
+              {project.name && (
+                <span style={{ color: 'var(--text-slate-400)', marginLeft: '0.5rem', fontSize: '0.875rem' }}>
+                  - {project.name}
+                </span>
+              )}
+            </h4>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="btn-outline"
+              style={{
+                padding: '0.25rem 0.5rem',
+                fontSize: '0.875rem',
+                background: 'rgba(99, 102, 241, 0.1)',
+                border: '1px solid rgba(99, 102, 241, 0.3)',
+                color: 'var(--primary)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+              }}
+              title={isExpanded ? 'Collapse' : 'Expand'}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '18px', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                expand_more
+              </span>
+            </button>
+            <button
+              onClick={() => {
+                if (!editableCV) return
+                setEditableCV({
+                  ...editableCV,
+                  projects: editableCV.projects.filter(p => p.id !== project.id)
+                })
+              }}
+              className="btn-outline"
+              style={{ padding: '0.25rem 0.75rem', fontSize: '0.875rem', background: 'rgba(239, 68, 68, 0.2)', border: '1px solid #ef4444', color: '#ef4444' }}
+              title="Delete project"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+
+        {/* Expandable Content */}
+        <div style={{
+          maxHeight: isExpanded ? '2000px' : '0',
+          overflow: 'hidden',
+          transition: 'max-height 0.3s ease',
+          padding: isExpanded ? '1rem' : '0 1rem',
+        }}>
+          <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+              <label>Project Name</label>
+              <input
+                type="text"
+                value={project.name}
+                onChange={(e) => {
+                  if (!editableCV) return
+                  const newProjects = [...editableCV.projects]
+                  newProjects[index] = { ...project, name: e.target.value }
+                  setEditableCV({ ...editableCV, projects: newProjects })
+                }}
+                className="input-field"
+              />
+            </div>
+            <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+              <label>Description</label>
+              <textarea
+                value={project.description}
+                onChange={(e) => {
+                  if (!editableCV) return
+                  const newProjects = [...editableCV.projects]
+                  newProjects[index] = { ...project, description: e.target.value }
+                  setEditableCV({ ...editableCV, projects: newProjects })
+                }}
+                className="input-field"
+                rows={3}
+              />
+            </div>
+            <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+              <label>Project URL</label>
+              <input
+                type="text"
+                value={project.url || ''}
+                onChange={(e) => {
+                  if (!editableCV) return
+                  const newProjects = [...editableCV.projects]
+                  newProjects[index] = { ...project, url: e.target.value || undefined }
+                  setEditableCV({ ...editableCV, projects: newProjects })
+                }}
+                className="input-field"
+                placeholder="https://..."
+              />
+            </div>
+            <div className="input-group">
+              <label>Start Date</label>
+              <input
+                type="month"
+                value={project.startDate || ''}
+                onChange={(e) => {
+                  if (!editableCV) return
+                  const newProjects = [...editableCV.projects]
+                  newProjects[index] = { ...project, startDate: e.target.value || undefined }
+                  setEditableCV({ ...editableCV, projects: newProjects })
+                }}
+                className="input-field"
+              />
+            </div>
+            <div className="input-group">
+              <label>End Date</label>
+              <input
+                type="month"
+                value={project.endDate || ''}
+                onChange={(e) => {
+                  if (!editableCV) return
+                  const newProjects = [...editableCV.projects]
+                  newProjects[index] = { ...project, endDate: e.target.value || undefined }
+                  setEditableCV({ ...editableCV, projects: newProjects })
+                }}
+                className="input-field"
+              />
+            </div>
+            <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+              <label>Technologies (comma-separated)</label>
+              <input
+                type="text"
+                value={project.technologies?.join(', ') || ''}
+                onChange={(e) => {
+                  if (!editableCV) return
+                  const newProjects = [...editableCV.projects]
+                  newProjects[index] = {
+                    ...project,
+                    technologies: e.target.value.split(',').map(t => t.trim()).filter(t => t)
+                  }
+                  setEditableCV({ ...editableCV, projects: newProjects })
+                }}
+                className="input-field"
+                placeholder="React, TypeScript, Node.js"
+              />
+            </div>
+          </div>
+          <div className="input-group" style={{ marginTop: '1rem' }}>
+            <label>Highlights (one per line)</label>
+            <textarea
+              value={project.highlights?.join('\n') || ''}
+              onChange={(e) => {
+                if (!editableCV) return
+                const newProjects = [...editableCV.projects]
+                newProjects[index] = {
+                  ...project,
+                  highlights: e.target.value.split('\n').filter(h => h.trim())
+                }
+                setEditableCV({ ...editableCV, projects: newProjects })
+              }}
+              className="input-field"
+              rows={3}
+              style={{ minHeight: '80px', resize: 'vertical' }}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================================
+// SORTABLE EDUCATION COMPONENT
+//============================================
+
+interface SortableEducationProps {
+  education: Education
+  index: number
+  editableCV: ParsedCV | null
+  setEditableCV: (cv: ParsedCV | null) => void
+}
+
+const SortableEducation = ({ education, index, editableCV, setEditableCV }: SortableEducationProps) => {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: education.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} className={`education-card-draggable ${isExpanded ? 'expanded' : 'collapsed'}`}>
+      <div style={{
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        borderRadius: '0.5rem',
+        background: 'rgba(15, 23, 42, 0.5)',
+        cursor: isDragging ? 'grabbing' : 'grab',
+        transition: 'all 0.2s ease',
+        overflow: 'hidden',
+      }}>
+        {/* Header - Always Visible */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '1rem',
+          borderBottom: isExpanded ? '1px solid rgba(255, 255, 255, 0.1)' : 'none',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1 }}>
+            <span
+              className="material-symbols-outlined drag-handle"
+              {...attributes}
+              {...listeners}
+              style={{ cursor: 'grab', color: 'var(--text-slate-400)', fontSize: '20px' }}
+            >
+              drag_indicator
+            </span>
+            <h4 style={{ margin: 0, fontSize: '1rem' }}>
+              Education #{index + 1}
+              {education.degree && (
+                <span style={{ color: 'var(--text-slate-400)', marginLeft: '0.5rem', fontSize: '0.875rem' }}>
+                  - {education.degree}
+                </span>
+              )}
+            </h4>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="btn-outline"
+              style={{
+                padding: '0.25rem 0.5rem',
+                fontSize: '0.875rem',
+                background: 'rgba(139, 92, 246, 0.1)',
+                border: '1px solid rgba(139, 92, 246, 0.3)',
+                color: '#8b5cf6',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+              }}
+              title={isExpanded ? 'Collapse' : 'Expand'}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '18px', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                expand_more
+              </span>
+            </button>
+            <button
+              onClick={() => {
+                if (!editableCV) return
+                setEditableCV({
+                  ...editableCV,
+                  education: editableCV.education.filter(e => e.id !== education.id)
+                })
+              }}
+              className="btn-outline"
+              style={{ padding: '0.25rem 0.75rem', fontSize: '0.875rem', background: 'rgba(239, 68, 68, 0.2)', border: '1px solid #ef4444', color: '#ef4444' }}
+              title="Delete education"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+
+        {/* Expandable Content */}
+        <div style={{
+          maxHeight: isExpanded ? '2000px' : '0',
+          overflow: 'hidden',
+          transition: 'max-height 0.3s ease',
+          padding: isExpanded ? '1rem' : '0 1rem',
+        }}>
+          <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <div className="input-group">
+              <label>Degree</label>
+              <input
+                type="text"
+                value={education.degree}
+                onChange={(e) => {
+                  if (!editableCV) return
+                  const newEducation = [...editableCV.education]
+                  newEducation[index] = { ...education, degree: e.target.value }
+                  setEditableCV({ ...editableCV, education: newEducation })
+                }}
+                className="input-field"
+                placeholder="e.g., Bachelor of Science"
+              />
+            </div>
+            <div className="input-group">
+              <label>School</label>
+              <input
+                type="text"
+                value={education.school}
+                onChange={(e) => {
+                  if (!editableCV) return
+                  const newEducation = [...editableCV.education]
+                  newEducation[index] = { ...education, school: e.target.value }
+                  setEditableCV({ ...editableCV, education: newEducation })
+                }}
+                className="input-field"
+                placeholder="e.g., MIT"
+              />
+            </div>
+            <div className="input-group">
+              <label>Field</label>
+              <input
+                type="text"
+                value={education.field || ''}
+                onChange={(e) => {
+                  if (!editableCV) return
+                  const newEducation = [...editableCV.education]
+                  newEducation[index] = { ...education, field: e.target.value || undefined }
+                  setEditableCV({ ...editableCV, education: newEducation })
+                }}
+                className="input-field"
+                placeholder="e.g., Computer Science"
+              />
+            </div>
+            <div className="input-group">
+              <label>Graduation Year</label>
+              <input
+                type="text"
+                value={education.graduationYear || ''}
+                onChange={(e) => {
+                  if (!editableCV) return
+                  const newEducation = [...editableCV.education]
+                  newEducation[index] = { ...education, graduationYear: e.target.value || undefined }
+                  setEditableCV({ ...editableCV, education: newEducation })
+                }}
+                className="input-field"
+                placeholder="e.g., 2020"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================================
+// SORTABLE EXPERIENCE COMPONENT
+//============================================
+
+interface SortableExperienceProps {
+  experience: WorkExperience
+  index: number
+  editableCV: ParsedCV | null
+  setEditableCV: (cv: ParsedCV | null) => void
+}
+
+const SortableExperience = ({ experience, index, editableCV, setEditableCV }: SortableExperienceProps) => {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: experience.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} className={`experience-card-draggable ${isExpanded ? 'expanded' : 'collapsed'}`}>
+      <div style={{
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        borderRadius: '0.5rem',
+        background: 'rgba(15, 23, 42, 0.5)',
+        cursor: isDragging ? 'grabbing' : 'grab',
+        transition: 'all 0.2s ease',
+        overflow: 'hidden',
+      }}>
+        {/* Header - Always Visible */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '1rem',
+          borderBottom: isExpanded ? '1px solid rgba(255, 255, 255, 0.1)' : 'none',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1 }}>
+            <span
+              className="material-symbols-outlined drag-handle"
+              {...attributes}
+              {...listeners}
+              style={{ cursor: 'grab', color: 'var(--text-slate-400)', fontSize: '20px' }}
+            >
+              drag_indicator
+            </span>
+            <h4 style={{ margin: 0, fontSize: '1rem' }}>
+              Experience #{index + 1}
+              {experience.role && (
+                <span style={{ color: 'var(--text-slate-400)', marginLeft: '0.5rem', fontSize: '0.875rem' }}>
+                  - {experience.role} at {experience.company}
+                </span>
+              )}
+            </h4>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="btn-outline"
+              style={{
+                padding: '0.25rem 0.5rem',
+                fontSize: '0.875rem',
+                background: 'rgba(16, 185, 129, 0.1)',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                color: '#10b981',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+              }}
+              title={isExpanded ? 'Collapse' : 'Expand'}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '18px', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                expand_more
+              </span>
+            </button>
+            <button
+              onClick={() => {
+                if (!editableCV) return
+                setEditableCV({
+                  ...editableCV,
+                  experience: editableCV.experience.filter(e => e.id !== experience.id)
+                })
+              }}
+              className="btn-outline"
+              style={{ padding: '0.25rem 0.75rem', fontSize: '0.875rem', background: 'rgba(239, 68, 68, 0.2)', border: '1px solid #ef4444', color: '#ef4444' }}
+              title="Delete experience"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+
+        {/* Expandable Content */}
+        <div style={{
+          maxHeight: isExpanded ? '2000px' : '0',
+          overflow: 'hidden',
+          transition: 'max-height 0.3s ease',
+          padding: isExpanded ? '1rem' : '0 1rem',
+        }}>
+          <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <div className="input-group">
+              <label>Role</label>
+              <input
+                type="text"
+                value={experience.role}
+                onChange={(e) => {
+                  if (!editableCV) return
+                  const newExperience = [...editableCV.experience]
+                  newExperience[index] = { ...experience, role: e.target.value }
+                  setEditableCV({ ...editableCV, experience: newExperience })
+                }}
+                className="input-field"
+                placeholder="e.g., Software Developer"
+              />
+            </div>
+            <div className="input-group">
+              <label>Company</label>
+              <input
+                type="text"
+                value={experience.company}
+                onChange={(e) => {
+                  if (!editableCV) return
+                  const newExperience = [...editableCV.experience]
+                  newExperience[index] = { ...experience, company: e.target.value }
+                  setEditableCV({ ...editableCV, experience: newExperience })
+                }}
+                className="input-field"
+                placeholder="e.g., Google"
+              />
+            </div>
+            <div className="input-group">
+              <label>Start Date</label>
+              <input
+                type="text"
+                value={experience.startDate || ''}
+                onChange={(e) => {
+                  if (!editableCV) return
+                  const newExperience = [...editableCV.experience]
+                  newExperience[index] = { ...experience, startDate: e.target.value || '' }
+                  setEditableCV({ ...editableCV, experience: newExperience })
+                }}
+                className="input-field"
+                placeholder="e.g., 01/2022, Jan 2022, 2022-01"
+              />
+            </div>
+            <div className="input-group">
+              <label>End Date</label>
+              <input
+                type="text"
+                value={experience.endDate || ''}
+                onChange={(e) => {
+                  if (!editableCV) return
+                  const newExperience = [...editableCV.experience]
+                  newExperience[index] = { ...experience, endDate: e.target.value || undefined }
+                  setEditableCV({ ...editableCV, experience: newExperience })
+                }}
+                className="input-field"
+                placeholder="e.g., 12/2023, Dec 2023, 2023-12"
+                disabled={experience.current}
+              />
+            </div>
+            <div className="input-group" style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <input
+                type="checkbox"
+                id={`current-${experience.id}`}
+                checked={experience.current}
+                onChange={(e) => {
+                  if (!editableCV) return
+                  const newExperience = [...editableCV.experience]
+                  newExperience[index] = {
+                    ...experience,
+                    current: e.target.checked,
+                    endDate: e.target.checked ? undefined : experience.endDate
+                  }
+                  setEditableCV({ ...editableCV, experience: newExperience })
+                }}
+                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+              />
+              <label htmlFor={`current-${experience.id}`} style={{ margin: 0, cursor: 'pointer', fontSize: '0.875rem' }}>
+                I currently work here
+              </label>
+            </div>
+          </div>
+          <div className="input-group" style={{ marginTop: '1rem' }}>
+            <label>Highlights (one per line)</label>
+            <textarea
+              value={experience.highlights?.join('\n') || ''}
+              onChange={(e) => {
+                if (!editableCV) return
+                const newExperience = [...editableCV.experience]
+                newExperience[index] = {
+                  ...experience,
+                  highlights: e.target.value.split('\n').filter(h => h.trim())
+                }
+                setEditableCV({ ...editableCV, experience: newExperience })
+              }}
+              className="input-field"
+              rows={4}
+              style={{ minHeight: '100px', resize: 'vertical' }}
+              placeholder="• Led development of web applications&#10;• Built RESTful APIs serving 1000+ daily users&#10;• Collaborated with cross-functional teams"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================================
 // CV PROFILE VIEW
 //============================================
 
@@ -164,6 +805,57 @@ const CVProfileView = ({ parsedCV, setParsedCV, personalInfo, setPersonalInfo, i
   const [editableCV, setEditableCV] = useState<ParsedCV | null>(null)
   const [editingSkills, setEditingSkills] = useState<Record<string, string[]> | null>(parsedCV?.skills || null)
   const [newSkillInputs, setNewSkillInputs] = useState<Record<string, string>>({})
+
+  // dnd-kit sensors for drag and drop
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!editableCV || !over) return
+
+    if (active.id !== over.id) {
+      // Check if it's a project
+      const projectOldIndex = editableCV.projects.findIndex((p) => p.id === active.id)
+      const projectNewIndex = editableCV.projects.findIndex((p) => p.id === over.id)
+
+      if (projectOldIndex !== -1 && projectNewIndex !== -1) {
+        setEditableCV({
+          ...editableCV,
+          projects: arrayMove(editableCV.projects, projectOldIndex, projectNewIndex),
+        })
+        return
+      }
+
+      // Check if it's experience
+      const expOldIndex = editableCV.experience.findIndex((e) => e.id === active.id)
+      const expNewIndex = editableCV.experience.findIndex((e) => e.id === over.id)
+
+      if (expOldIndex !== -1 && expNewIndex !== -1) {
+        setEditableCV({
+          ...editableCV,
+          experience: arrayMove(editableCV.experience, expOldIndex, expNewIndex),
+        })
+        return
+      }
+
+      // Check if it's education
+      const eduOldIndex = editableCV.education.findIndex((e) => e.id === active.id)
+      const eduNewIndex = editableCV.education.findIndex((e) => e.id === over.id)
+
+      if (eduOldIndex !== -1 && eduNewIndex !== -1) {
+        setEditableCV({
+          ...editableCV,
+          education: arrayMove(editableCV.education, eduOldIndex, eduNewIndex),
+        })
+        return
+      }
+    }
+  }
 
   // Initialize newSkillInputs when editingSkills changes
   useEffect(() => {
@@ -197,12 +889,12 @@ const CVProfileView = ({ parsedCV, setParsedCV, personalInfo, setPersonalInfo, i
     const fileInputRef = useRef<HTMLInputElement>(null)
     const [isDragging, setIsDragging] = useState(false)
 
-    const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault()
       setIsDragging(false)
       const files = Array.from(e.dataTransfer.files)
-      if (files.length > 0 && isPDFFile(files[0])) {
-        handleFileUpload(files[0])
+      if (files.length > 0 && isPDFFile(files[0] as File)) {
+        handleFileUpload(files[0] as File)
       }
     }
 
@@ -577,6 +1269,103 @@ const CVProfileView = ({ parsedCV, setParsedCV, personalInfo, setPersonalInfo, i
             </section>
           )}
 
+          {/* Experience */}
+          {editableCV?.experience && editableCV.experience.length > 0 && (
+            <section className="glass-card section-card">
+              <div className="section-header">
+                <Icon name="work" className="section-icon" />
+                <h3>Experience</h3>
+              </div>
+              {isEditing ? (
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext
+                    items={editableCV.experience.map(e => e.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      {editableCV.experience.map((exp, expIndex) => (
+                        <SortableExperience
+                          key={exp.id}
+                          experience={exp}
+                          index={expIndex}
+                          editableCV={editableCV}
+                          setEditableCV={setEditableCV}
+                        />
+                      ))}
+                      <button
+                        onClick={() => {
+                          if (!editableCV) return
+                          const newExp: WorkExperience = {
+                            id: `exp-${Date.now()}`,
+                            role: '',
+                            company: '',
+                            startDate: '',
+                            endDate: '',
+                            current: false,
+                            highlights: [],
+                            skills: [],
+                            visibleInCV: true
+                          }
+                          setEditableCV({
+                            ...editableCV,
+                            experience: [...editableCV.experience, newExp]
+                          })
+                        }}
+                        className="btn-outline"
+                        style={{ borderStyle: 'dashed' }}
+                      >
+                        + Add Experience
+                      </button>
+                    </div>
+                  </SortableContext>
+                </DndContext>
+              ) : (
+                <div className="timeline">
+                  {editableCV.experience.map((exp) => (
+                    <div key={exp.id} className="timeline-item">
+                      <div className="timeline-dot" style={{ background: '#10b981' }} />
+                      <div className="timeline-content">
+                        <div className="timeline-header-row">
+                          <div>
+                            <h4>{exp.role}</h4>
+                            <p style={{ color: 'var(--text-slate-300)', fontSize: '0.875rem' }}>
+                              {exp.company}
+                              {exp.current && (
+                                <span style={{ color: '#10b981', marginLeft: '0.5rem', fontSize: '0.75rem' }}>
+                                  • Present
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                          {(exp.startDate || exp.endDate) && (
+                            <span className="timeline-date">
+                              {exp.startDate && `${formatDate(exp.startDate)}`}
+                              {exp.startDate && exp.endDate && ' – '}
+                              {exp.endDate && `${formatDate(exp.endDate)}`}
+                            </span>
+                          )}
+                        </div>
+                        {exp.highlights && exp.highlights.length > 0 && (
+                          <ul style={{ marginTop: '0.5rem', paddingLeft: '1rem' }}>
+                            {exp.highlights.map((highlight, idx) => (
+                              <li key={idx} style={{ color: 'var(--text-slate-300)', fontSize: '0.875rem', marginBottom: '0.25rem' }}>
+                                • {highlight}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
           {/* Skills - All Categories */}
           <section className="glass-card section-card">
             <div className="section-header">
@@ -657,136 +1446,52 @@ const CVProfileView = ({ parsedCV, setParsedCV, personalInfo, setPersonalInfo, i
                 <h3>Projects</h3>
               </div>
               {isEditing ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                  {editableCV.projects.map((proj, projIndex) => (
-                    <div key={proj.id} style={{
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      borderRadius: '0.5rem',
-                      padding: '1rem',
-                      background: 'rgba(15, 23, 42, 0.5)'
-                    }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                        <h4 style={{ margin: 0 }}>Project #{projIndex + 1}</h4>
-                        <button
-                          onClick={() => {
-                            if (!editableCV) return
-                            setEditableCV({
-                              ...editableCV,
-                              projects: editableCV.projects.filter(p => p.id !== proj.id)
-                            })
-                          }}
-                          className="btn-outline"
-                          style={{ padding: '0.25rem 0.75rem', fontSize: '0.875rem', background: 'rgba(239, 68, 68, 0.2)', border: '1px solid #ef4444', color: '#ef4444' }}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                      <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-                        <div className="input-group" style={{ gridColumn: '1 / -1' }}>
-                          <label>Project Name</label>
-                          <input
-                            type="text"
-                            value={proj.name}
-                            onChange={(e) => {
-                              if (!editableCV) return
-                              const newProjects = [...editableCV.projects]
-                              newProjects[projIndex] = { ...proj, name: e.target.value }
-                              setEditableCV({ ...editableCV, projects: newProjects })
-                            }}
-                            className="input-field"
-                          />
-                        </div>
-                        <div className="input-group" style={{ gridColumn: '1 / -1' }}>
-                          <label>Description</label>
-                          <textarea
-                            value={proj.description}
-                            onChange={(e) => {
-                              if (!editableCV) return
-                              const newProjects = [...editableCV.projects]
-                              newProjects[projIndex] = { ...proj, description: e.target.value }
-                              setEditableCV({ ...editableCV, projects: newProjects })
-                            }}
-                            className="input-field"
-                            rows={3}
-                          />
-                        </div>
-                        <div className="input-group" style={{ gridColumn: '1 / -1' }}>
-                          <label>Project URL</label>
-                          <input
-                            type="text"
-                            value={proj.url || ''}
-                            onChange={(e) => {
-                              if (!editableCV) return
-                              const newProjects = [...editableCV.projects]
-                              newProjects[projIndex] = { ...proj, url: e.target.value || undefined }
-                              setEditableCV({ ...editableCV, projects: newProjects })
-                            }}
-                            className="input-field"
-                            placeholder="https://..."
-                          />
-                        </div>
-                        <div className="input-group" style={{ gridColumn: '1 / -1' }}>
-                          <label>Technologies (comma-separated)</label>
-                          <input
-                            type="text"
-                            value={proj.technologies?.join(', ') || ''}
-                            onChange={(e) => {
-                              if (!editableCV) return
-                              const newProjects = [...editableCV.projects]
-                              newProjects[projIndex] = {
-                                ...proj,
-                                technologies: e.target.value.split(',').map(t => t.trim()).filter(t => t)
-                              }
-                              setEditableCV({ ...editableCV, projects: newProjects })
-                            }}
-                            className="input-field"
-                            placeholder="React, TypeScript, Node.js"
-                          />
-                        </div>
-                      </div>
-                      <div className="input-group" style={{ marginTop: '1rem' }}>
-                        <label>Highlights (one per line)</label>
-                        <textarea
-                          value={proj.highlights?.join('\n') || ''}
-                          onChange={(e) => {
-                            if (!editableCV) return
-                            const newProjects = [...editableCV.projects]
-                            newProjects[projIndex] = {
-                              ...proj,
-                              highlights: e.target.value.split('\n').filter(h => h.trim())
-                            }
-                            setEditableCV({ ...editableCV, projects: newProjects })
-                          }}
-                          className="input-field"
-                          rows={3}
-                          style={{ minHeight: '80px', resize: 'vertical' }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                  <button
-                    onClick={() => {
-                      if (!editableCV) return
-                      const newProj: Project = {
-                        id: `proj-${Date.now()}`,
-                        name: '',
-                        description: '',
-                        technologies: [],
-                        url: '',
-                        highlights: [],
-                        visibleInCV: true
-                      }
-                      setEditableCV({
-                        ...editableCV,
-                        projects: [...editableCV.projects, newProj]
-                      })
-                    }}
-                    className="btn-outline"
-                    style={{ borderStyle: 'dashed' }}
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext
+                    items={editableCV.projects.map(p => p.id)}
+                    strategy={verticalListSortingStrategy}
                   >
-                    + Add Project
-                  </button>
-                </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      {editableCV.projects.map((proj, projIndex) => (
+                        <SortableProject
+                          key={proj.id}
+                          project={proj}
+                          index={projIndex}
+                          editableCV={editableCV}
+                          setEditableCV={setEditableCV}
+                        />
+                      ))}
+                      <button
+                        onClick={() => {
+                          if (!editableCV) return
+                          const newProj: Project = {
+                            id: `proj-${Date.now()}`,
+                            name: '',
+                            description: '',
+                            technologies: [],
+                            url: '',
+                            startDate: '',
+                            endDate: '',
+                            highlights: [],
+                            visibleInCV: true
+                          }
+                          setEditableCV({
+                            ...editableCV,
+                            projects: [...editableCV.projects, newProj]
+                          })
+                        }}
+                        className="btn-outline"
+                        style={{ borderStyle: 'dashed' }}
+                      >
+                        + Add Project
+                      </button>
+                    </div>
+                  </SortableContext>
+                </DndContext>
               ) : (
                 <div className="timeline">
                   {editableCV.projects.map((proj) => (
@@ -796,8 +1501,15 @@ const CVProfileView = ({ parsedCV, setParsedCV, personalInfo, setPersonalInfo, i
                         <div className="timeline-header-row">
                           <div>
                             <h4>{proj.name}</h4>
+                            {(proj.startDate || proj.endDate) && (
+                              <span style={{ color: 'var(--text-slate-400)', fontSize: '0.875rem', marginLeft: '0.5rem' }}>
+                                {proj.startDate && `${formatDate(proj.startDate)}`}
+                                {proj.startDate && proj.endDate && ' – '}
+                                {proj.endDate && `${formatDate(proj.endDate)}`}
+                              </span>
+                            )}
                             {proj.url && (
-                              <a href={proj.url} target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6', textDecoration: 'none', fontSize: '0.875rem' }}>
+                              <a href={proj.url} target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6', textDecoration: 'none', fontSize: '0.875rem', marginLeft: '0.5rem' }}>
                                 🔗 View Project
                               </a>
                             )}
@@ -836,116 +1548,49 @@ const CVProfileView = ({ parsedCV, setParsedCV, personalInfo, setPersonalInfo, i
                 <h3>Education</h3>
               </div>
               {isEditing ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                  {editableCV.education.map((edu, eduIndex) => (
-                    <div key={edu.id} style={{
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      borderRadius: '0.5rem',
-                      padding: '1rem',
-                      background: 'rgba(15, 23, 42, 0.5)'
-                    }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                        <h4 style={{ margin: 0 }}>Education #{eduIndex + 1}</h4>
-                        <button
-                          onClick={() => {
-                            if (!editableCV) return
-                            setEditableCV({
-                              ...editableCV,
-                              education: editableCV.education.filter(e => e.id !== edu.id)
-                            })
-                          }}
-                          className="btn-outline"
-                          style={{ padding: '0.25rem 0.75rem', fontSize: '0.875rem', background: 'rgba(239, 68, 68, 0.2)', border: '1px solid #ef4444', color: '#ef4444' }}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                      <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-                        <div className="input-group">
-                          <label>Degree</label>
-                          <input
-                            type="text"
-                            value={edu.degree}
-                            onChange={(e) => {
-                              if (!editableCV) return
-                              const newEducation = [...editableCV.education]
-                              newEducation[eduIndex] = { ...edu, degree: e.target.value }
-                              setEditableCV({ ...editableCV, education: newEducation })
-                            }}
-                            className="input-field"
-                            placeholder="e.g., Bachelor of Science"
-                          />
-                        </div>
-                        <div className="input-group">
-                          <label>School</label>
-                          <input
-                            type="text"
-                            value={edu.school}
-                            onChange={(e) => {
-                              if (!editableCV) return
-                              const newEducation = [...editableCV.education]
-                              newEducation[eduIndex] = { ...edu, school: e.target.value }
-                              setEditableCV({ ...editableCV, education: newEducation })
-                            }}
-                            className="input-field"
-                            placeholder="e.g., MIT"
-                          />
-                        </div>
-                        <div className="input-group">
-                          <label>Field</label>
-                          <input
-                            type="text"
-                            value={edu.field || ''}
-                            onChange={(e) => {
-                              if (!editableCV) return
-                              const newEducation = [...editableCV.education]
-                              newEducation[eduIndex] = { ...edu, field: e.target.value || undefined }
-                              setEditableCV({ ...editableCV, education: newEducation })
-                            }}
-                            className="input-field"
-                            placeholder="e.g., Computer Science"
-                          />
-                        </div>
-                        <div className="input-group">
-                          <label>Graduation Year</label>
-                          <input
-                            type="text"
-                            value={edu.graduationYear || ''}
-                            onChange={(e) => {
-                              if (!editableCV) return
-                              const newEducation = [...editableCV.education]
-                              newEducation[eduIndex] = { ...edu, graduationYear: e.target.value || undefined }
-                              setEditableCV({ ...editableCV, education: newEducation })
-                            }}
-                            className="input-field"
-                            placeholder="e.g., 2020"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  <button
-                    onClick={() => {
-                      if (!editableCV) return
-                      const newEdu: Education = {
-                        id: `edu-${Date.now()}`,
-                        degree: '',
-                        school: '',
-                        field: '',
-                        graduationYear: '',
-                        visibleInCV: true
-                      }
-                      setEditableCV({
-                        ...editableCV,
-                        education: [...editableCV.education, newEdu]
-                      })
-                    }}
-                    className="btn-outline"
-                    style={{ borderStyle: 'dashed' }}
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext
+                    items={editableCV.education.map(e => e.id)}
+                    strategy={verticalListSortingStrategy}
                   >
-                    + Add Education
-                  </button>
-                </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      {editableCV.education.map((edu, eduIndex) => (
+                        <SortableEducation
+                          key={edu.id}
+                          education={edu}
+                          index={eduIndex}
+                          editableCV={editableCV}
+                          setEditableCV={setEditableCV}
+                        />
+                      ))}
+                      <button
+                        onClick={() => {
+                          if (!editableCV) return
+                          const newEdu: Education = {
+                            id: `edu-${Date.now()}`,
+                            degree: '',
+                            school: '',
+                            field: '',
+                            graduationYear: '',
+                            visibleInCV: true
+                          }
+                          setEditableCV({
+                            ...editableCV,
+                            education: [...editableCV.education, newEdu]
+                          })
+                        }}
+                        className="btn-outline"
+                        style={{ borderStyle: 'dashed' }}
+                      >
+                        + Add Education
+                      </button>
+                    </div>
+                  </SortableContext>
+                </DndContext>
               ) : (
                 <div className="timeline">
                   {editableCV.education.map((edu) => (

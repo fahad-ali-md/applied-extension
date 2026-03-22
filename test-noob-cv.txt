@@ -1,0 +1,27 @@
+JOHN DOE
+Email: john.doe@gmail.com
+Phone: +1-234-567-8900
+
+EXPERIENCE
+
+Software Developer - TechCorp (01/2022 - Present)
+Developed web applications
+
+Junior Developer - StartupBD (06/2020 - 12/2021)
+Built APIs
+
+EDUCATION
+
+B.Sc in Computer Science - BUET (2018 - 2022)
+
+SKILLS
+
+JavaScript, Python, React, Node.js, SQL, MongoDB, Git
+
+PROJECTS
+
+E-commerce Website
+https://github.com/john/shop
+
+Task Manager App
+https://github.com/john/tasks

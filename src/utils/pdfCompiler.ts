@@ -1,8 +1,7 @@
 /**
- * PDF Compiler for LaTeX CV
+ * PDF Compiler for CV Generation
  *
- * Converts LaTeX content to PDF using client-side JavaScript
- * Uses jsPDF for PDF generation (no external server needed)
+ * Direct CV data → PDF using jsPDF (no LaTeX needed)
  */
 
 import { jsPDF } from 'jspdf'
@@ -25,466 +24,6 @@ export interface CompileOptions {
 }
 
 // ============================================
-// Default CV LaTeX Template
-// ============================================
-
-export const DEFAULT_CV_TEMPLATE = `\\documentclass[11pt,a4paper]{article}
-\\usepackage[margin=2cm]{geometry}
-\\usepackage{hyperref}
-\\usepackage{enumitem}
-\\usepackage{parskip}
-\\usepackage{titlesec}
-\\usepackage{array}
-
-% Section formatting
-\\titleformat{\\section}
-  {\\normalfont\\small\\bfseries\\uppercase}
-  {}{0em}{}[\\vspace{-4pt}\\rule{\\linewidth}{0.4pt}]
-\\titlespacing{\\section}{0pt}{10pt}{6pt}
-
-% No page numbers
-\\pagestyle{empty}
-
-% List spacing
-\\setlist[itemize]{noitemsep, topsep=2pt, leftmargin=1.2em}
-
-\\begin{document}
-
-% ════════════════════════════════════════════════════
-% HEADER
-% ════════════════════════════════════════════════════
-\\begin{center}
-  {\\LARGE\\textbf{Rakib Hasan}}\\\\[4pt]
-  {\\normalsize Software Engineer · Full Stack Developer}\\\\[6pt]
-  {\\small
-    rakib@email.com \\quad|\\quad
-    +880-1700-000000 \\quad|\\quad
-    \\href{https://linkedin.com/in/rakib}{linkedin.com/in/rakib} \\quad|\\quad
-    \\href{https://github.com/rakib}{github.com/rakib}
-  }
-\\end{center}
-
-\\vspace{8pt}
-
-% ════════════════════════════════════════════════════
-% EXPERIENCE
-% ════════════════════════════════════════════════════
-\\section{Experience}
-
-\\textbf{Senior Software Engineer} \\hfill \\textit{2022 -- Present}\\\\
-TechCorp Ltd, Dhaka
-\\begin{itemize}
-  \\item Built microservices architecture serving 500k+ daily users
-  \\item Reduced API response time by 40\\% through Redis caching
-  \\item Led a team of 5 engineers across 3 product verticals
-\\end{itemize}
-
-\\vspace{4pt}
-
-\\textbf{Junior Developer} \\hfill \\textit{2020 -- 2022}\\\\
-Startup BD, Dhaka
-\\begin{itemize}
-  \\item Developed REST APIs using Node.js and PostgreSQL
-  \\item Delivered 10+ client projects on time and within budget
-\\end{itemize}
-
-% ════════════════════════════════════════════════════
-% EDUCATION
-% ════════════════════════════════════════════════════
-\\section{Education}
-
-\\textbf{B.Sc in Computer Science \\& Engineering} \\hfill \\textit{2016 -- 2020}\\\\
-Bangladesh University of Engineering and Technology (BUET)\\\\
-CGPA: 3.75 / 4.00
-
-% ════════════════════════════════════════════════════
-% SKILLS
-% ════════════════════════════════════════════════════
-\\section{Skills}
-
-\\begin{tabular}{@{} l l}
-  \\textbf{Languages}  & TypeScript, Python, Go, SQL \\\\[2pt]
-  \\textbf{Frameworks} & React, Next.js, Node.js, FastAPI \\\\[2pt]
-  \\textbf{Tools}      & Docker, Kubernetes, AWS, PostgreSQL, Redis \\\\
-\\end{tabular}
-
-% ════════════════════════════════════════════════════
-% PROJECTS
-% ════════════════════════════════════════════════════
-\\section{Projects}
-
-\\textbf{OpenBazaar BD} \\hfill
-\\href{https://github.com/rakib/openbazaar}{\\small github.com/rakib/openbazaar}\\\\
-E-commerce platform for local artisans — Next.js, Stripe, Supabase. 2k+ active users.
-
-\\vspace{4pt}
-
-\\textbf{BanglaNLP Toolkit} \\hfill
-\\href{https://github.com/rakib/bangla-nlp}{\\small github.com/rakib/bangla-nlp}\\\\
-Open-source NLP library for Bangla text processing. 300+ GitHub stars.
-
-\\end{document}`
-
-// ============================================
-// LaTeX to Simple Text Parser
-// ============================================
-
-/**
- * Parse simple LaTeX subset to plain text with formatting
- * This is a simplified parser that handles common LaTeX commands
- * For full LaTeX support, consider using a server-side LaTeX compiler
- */
-class LatexParser {
-  private text: string = ''
-  private fontSize: number = 12
-  private isBold: boolean = false
-  private isSection: boolean = false
-  private x: number = 20
-  private y: number = 20
-  private lineHeight: number = 7
-  private pageHeight: number = 280
-  private pageWidth: number = 190
-  private margin: number = 20
-
-  constructor(latex: string, options: CompileOptions = {}) {
-    this.lineHeight = options.lineHeight || 7
-    this.margin = options.margin || 20
-    this.x = this.margin
-    this.y = this.margin
-
-    // Parse LaTeX and extract text content
-    this.text = this.parseLatexToText(latex)
-  }
-
-  /**
-   * Parse LaTeX to extract plain text content
-   * Handles common LaTeX commands
-   */
-  private parseLatexToText(latex: string): string {
-    let text = latex
-
-    // Remove document class and packages
-    text = text.replace(/\\documentclass\[[^\]]*\]\{[^}]*\}/g, '')
-    text = text.replace(/\\usepackage\[[^\]]*\]\{[^}]*\}/g, '')
-    text = text.replace(/\\usepackage\{[^}]*\}/g, '')
-    text = text.replace(/\\hypersetup\{[^}]*\}/g, '')
-
-    // Remove formatting commands but keep content
-    text = text.replace(/\\textbf\{([^}]*)\}/g, '**$1**') // Bold
-    text = text.replace(/\\textit\{([^}]*)\}/g, '*$1*')   // Italic
-    text = text.replace(/\\underline\{([^}]*)\}/g, '_$1_') // Underline
-    text = text.replace(/\\texttt\{([^}]*)\}/g, '`$1`')   // Monospace
-    text = text.replace(/\\textsc\{([^}]*)\}/g, '$1')     // Small caps
-    text = text.replace(/\\textbackslash\{}/g, '\\\\')
-    text = text.replace(/\\textasciitilde\{}/g, '~')
-    text = text.replace(/\\textasciicircum\{}/g, '^')
-
-    // Handle href
-    text = text.replace(/\\href\{([^}]*)\}\{([^}]*)\}/g, '$2 ($1)')
-
-    // Remove environments
-    text = text.replace(/\\begin\{[^}]*\}/g, '')
-    text = text.replace(/\\end\{[^}]*\}/g, '')
-
-    // Remove other LaTeX commands
-    text = text.replace(/\\[a-zA-Z]+(\[[^\]]*\])?\{?/g, ' ')
-    text = text.replace(/\\vspace\{[^}]*\}/g, '\n\n')
-    text = text.replace(/\\hfill/g, '           ')
-    text = text.replace(/\\newline/g, '\n')
-    text = text.replace(/\\rule\{[^}]*\}\{[^}]*\}/g, '____________________\n')
-
-    // Clean up
-    text = text.replace(/\{}/g, '')
-    text = text.replace(/\\\\/g, '\n')
-    text = text.replace(/\\\\/g, '\n')
-
-    // Remove document environment
-    text = text.replace(/\\begin\{document\}/g, '')
-    text = text.replace(/\\end\{document\}/g, '')
-
-    // Clean up extra whitespace
-    text = text.replace(/\n{3,}/g, '\n\n')
-    text = text.trim()
-
-    return text
-  }
-
-  /**
-   * Add text to PDF with word wrapping
-   */
-  addTextToPDF(pdf: jsPDF, text: string, fontSize: number = 12, isBold: boolean = false): void {
-    pdf.setFontSize(fontSize)
-    pdf.setFont('helvetica', isBold ? 'bold' : 'normal')
-
-    const lines = text.split('\n')
-    const maxWidth = this.pageWidth - (2 * this.margin)
-
-    for (const line of lines) {
-      if (this.y > this.pageHeight) {
-        pdf.addPage()
-        this.y = this.margin
-      }
-
-      // Check for bold markers
-      const processedLine = this.processBoldMarkers(line)
-      const segments = processedLine.segments
-
-      let currentX = this.x
-      const words: Array<{ text: string; bold: boolean }> = []
-
-      // Split into words with their bold status
-      for (let i = 0; i < segments.length; i++) {
-        const segmentWords = segments[i].text.split(' ')
-        const isBold = segments[i].bold
-
-        for (const word of segmentWords) {
-          if (word) {
-            words.push({ text: word, bold: isBold })
-          }
-        }
-      }
-
-      // Word wrap
-      let lineText = ''
-      let lastBoldState = false
-
-      for (const wordObj of words) {
-        pdf.setFont('helvetica', wordObj.bold ? 'bold' : 'normal')
-        const wordWidth = pdf.getTextWidth(wordObj.text + ' ')
-
-        if (currentX + wordWidth > this.pageWidth - this.margin && lineText !== '') {
-          // Print current line
-          pdf.text(lineText.trim(), this.x, this.y)
-          this.y += this.lineHeight
-          currentX = this.x
-          lineText = ''
-        }
-
-        if (lastBoldState !== wordObj.bold && lineText !== '') {
-          pdf.setFont('helvetica', lastBoldState ? 'bold' : 'normal')
-          pdf.text(lineText.trim(), this.x + currentX - this.x, this.y)
-          currentX += pdf.getTextWidth(lineText)
-          lineText = ''
-        }
-
-        lineText += wordObj.text + ' '
-        lastBoldState = wordObj.bold
-      }
-
-      if (lineText.trim()) {
-        pdf.setFont('helvetica', lastBoldState ? 'bold' : 'normal')
-        pdf.text(lineText.trim(), this.x, this.y)
-      }
-
-      this.y += this.lineHeight
-    }
-  }
-
-  /**
-   * Process **bold** markers in text
-   */
-  private processBoldMarkers(text: string): { segments: Array<{ text: string; bold: boolean }> } {
-    const segments: Array<{ text: string; bold: boolean }> = []
-    const regex = /\*\*([^*]+)\*\*/g
-    let lastIndex = 0
-    let match
-
-    while ((match = regex.exec(text)) !== null) {
-      // Add text before bold (normal)
-      if (match.index > lastIndex) {
-        const normalText = text.substring(lastIndex, match.index)
-        segments.push({ text: normalText, bold: false })
-      }
-
-      // Add bold text
-      segments.push({ text: match[1], bold: true })
-      lastIndex = regex.lastIndex
-    }
-
-    // Add remaining text (normal)
-    if (lastIndex < text.length) {
-      segments.push({ text: text.substring(lastIndex), bold: false })
-    }
-
-    // If no bold markers found, treat entire text as normal
-    if (segments.length === 0) {
-      segments.push({ text, bold: false })
-    }
-
-    return { segments }
-  }
-
-  /**
-   * Get parsed text content
-   */
-  getText(): string {
-    return this.text
-  }
-}
-
-// ============================================
-// Main Compiler Function
-// ============================================
-
-/**
- * Compile LaTeX content to PDF blob
- * If no latexContent provided, uses the DEFAULT_CV_TEMPLATE
- */
-export async function compileLatexToPDF(
-  latexContent: string = DEFAULT_CV_TEMPLATE,
-  options: CompileOptions = {}
-): Promise<PDFCompileResult> {
-  try {
-    console.log('[PDF Compiler] Starting PDF compilation...')
-
-    // Create new PDF document (A4 size)
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4'
-    })
-
-    // Parse LaTeX content
-    const parser = new LatexParser(latexContent, options)
-    const text = parser.getText()
-
-    // Split into sections based on lines
-    const lines = text.split('\n')
-    let yPosition = 20
-    const margin = 20
-    const lineHeight = options.lineHeight || 7
-    const pageHeight = 280
-
-    // Process header section (name, title, contact)
-    let inHeader = true
-    let headerLines: string[] = []
-    let lineIndex = 0
-
-    for (const line of lines) {
-      if (line.trim() === '') {
-        if (inHeader && headerLines.length > 0) {
-          inHeader = false
-        }
-        continue
-      }
-
-      // Check for page break
-      if (yPosition > pageHeight) {
-        pdf.addPage()
-        yPosition = 20
-      }
-
-      // Determine font style
-      const isBold = line.startsWith('**') || line.includes('**')
-      const cleanLine = line.replace(/\*\*/g, '').trim()
-
-      if (!cleanLine) {
-        yPosition += lineHeight / 2
-        continue
-      }
-
-      // Header section (centered, larger)
-      if (inHeader) {
-        if (headerLines.length === 0) {
-          // Name (largest)
-          pdf.setFontSize(20)
-          pdf.setFont('helvetica', 'bold')
-          pdf.text(cleanLine, 105, yPosition, { align: 'center' })
-          yPosition += 10
-        } else if (headerLines.length === 1) {
-          // Title
-          pdf.setFontSize(14)
-          pdf.setFont('helvetica', 'normal')
-          pdf.text(cleanLine, 105, yPosition, { align: 'center' })
-          yPosition += 8
-        } else {
-          // Contact info (smaller)
-          pdf.setFontSize(10)
-          pdf.setFont('helvetica', 'normal')
-          pdf.text(cleanLine, 105, yPosition, { align: 'center' })
-          yPosition += lineHeight
-        }
-        headerLines.push(cleanLine)
-
-        // Check if header is done (when we see an empty line or section marker)
-        if (lineIndex > 5 || (headerLines.length > 3 && lines[lineIndex + 1]?.trim() === '')) {
-          inHeader = false
-          yPosition += 5
-        }
-      } else {
-        // Body content (left-aligned)
-        // Check for section headers (UPPERCASE lines or lines with ___)
-        const isSectionHeader = cleanLine === cleanLine.toUpperCase() ||
-          cleanLine.includes('_____') ||
-          cleanLine.includes('======')
-
-        if (isSectionHeader) {
-          pdf.setFontSize(14)
-          pdf.setFont('helvetica', 'bold')
-          pdf.text(cleanLine.replace(/_/g, '').replace(/=/g, ''), margin, yPosition)
-          yPosition += lineHeight + 2
-
-          // Add underline for section
-          pdf.setLineWidth(0.5)
-          pdf.line(margin, yPosition, 190 - margin, yPosition)
-          yPosition += lineHeight
-        } else {
-          // Regular content
-          const fontSize = cleanLine.length < 50 ? 12 : 11
-          pdf.setFontSize(fontSize)
-          pdf.setFont('helvetica', isBold ? 'bold' : 'normal')
-
-          // Word wrap for long lines
-          const maxWidth = 190 - (2 * margin)
-          const words = cleanLine.split(' ')
-          let currentLine = ''
-
-          for (const word of words) {
-            const testLine = currentLine + (currentLine ? ' ' : '') + word
-            const textWidth = pdf.getTextWidth(testLine)
-
-            if (textWidth > maxWidth && currentLine !== '') {
-              pdf.text(currentLine, margin, yPosition)
-              yPosition += lineHeight
-              currentLine = word
-
-              if (yPosition > pageHeight) {
-                pdf.addPage()
-                yPosition = 20
-              }
-            } else {
-              currentLine = testLine
-            }
-          }
-
-          if (currentLine) {
-            pdf.text(currentLine, margin, yPosition)
-            yPosition += lineHeight
-          }
-        }
-      }
-
-      lineIndex++
-    }
-
-    // Generate PDF blob
-    const pdfBlob = pdf.output('blob')
-    console.log('[PDF Compiler] PDF generated successfully')
-
-    return {
-      success: true,
-      pdfBlob
-    }
-  } catch (error) {
-    console.error('[PDF Compiler] Error compiling PDF:', error)
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    }
-  }
-}
-
-// ============================================
 // Utility Functions
 // ============================================
 
@@ -503,7 +42,7 @@ export function downloadPDFBlob(pdfBlob: Blob, filename: string = 'cv.pdf'): voi
 }
 
 /**
- * Convert PDF blob to base64 (for debugging)
+ * Convert PDF blob to base64 (for chrome messaging)
  */
 export async function pdfBlobToBase64(pdfBlob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -533,5 +72,494 @@ export function getPDFSize(pdfBlob: Blob): string {
     return `${kb.toFixed(2)} KB`
   } else {
     return `${bytes} bytes`
+  }
+}
+
+// ============================================
+// CV Data to PDF (Main Function)
+// ============================================
+
+/**
+ * CV Data Types (matching storage structure)
+ */
+export interface CVDataForPdf {
+  personal?: {
+    firstName?: string
+    lastName?: string
+    email?: string
+    phone?: string
+    linkedIn?: string
+    portfolio?: string
+    city?: string
+    country?: string
+  }
+  professional?: {
+    summary?: string
+    currentTitle?: string
+    yearsOfExperience?: number
+  }
+  experience?: Array<{
+    role?: string
+    company?: string
+    startDate?: string
+    endDate?: string
+    current?: boolean
+    highlights?: string[]
+  }>
+  projects?: Array<{
+    name?: string
+    description?: string
+    technologies?: string[]
+    url?: string
+    startDate?: string
+    endDate?: string
+    highlights?: string[]
+  }>
+  education?: Array<{
+    degree?: string
+    school?: string
+    field?: string  // Starting date in MM/YYYY format
+    startDate?: string
+    graduationYear?: string
+  }>
+  skills?: Record<string, string[] | undefined>
+}
+
+/**
+ * Generate PDF directly from CV data using jsPDF
+ * Auto-sorts experience and projects by date (most recent first)
+ * Styled professionally for ATS compatibility
+ */
+export async function compileCVDataToPDF(
+  cvData: CVDataForPdf,
+  options: CompileOptions = {}
+): Promise<PDFCompileResult> {
+  try {
+    console.log('[PDF Compiler] Starting PDF generation from CV data...')
+
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    })
+
+    // Professional margins for better readability and spacing
+    const margin = 18 // 18mm margins (more generous like Canva)
+    const pageWidth = 210
+    const pageHeight = 297
+    const maxWidth = pageWidth - (2 * margin)
+    const fontSize = options.fontSize || 11 // 11pt optimal for ATS
+
+    let yPosition = margin
+
+    // Helper: Check for new page
+    const checkNewPage = (y: number): number => {
+      if (y > pageHeight - margin) {
+        pdf.addPage()
+        return margin
+      }
+      return y
+    }
+
+    // Helper: Pass through date as-is (universal format support)
+    const formatDate = (dateStr?: string): string => {
+      if (!dateStr) return ''
+      return dateStr // Display whatever format user provided
+    }
+
+    // Helper: Parse date for sorting
+    const parseDateValue = (dateStr?: string): Date | null => {
+      if (!dateStr) return null
+      try {
+        const match = dateStr.match(/(\d{4})-(\d{1,2})/)
+        if (match) {
+          return new Date(parseInt(match[1]), parseInt(match[2]) - 1)
+        }
+        return new Date(dateStr)
+      } catch {
+        return null
+      }
+    }
+
+    // Helper: Smart text wrapping that preserves metrics/numbers
+    const wrapTextSmartly = (text: string, maxWidth: number): string[] => {
+      const words = text.split(' ')
+      const lines: string[] = []
+      let currentLine = ''
+
+      for (let i = 0; i < words.length; i++) {
+        const word = words[i]
+        const testLine = currentLine + (currentLine ? ' ' : '') + word
+        const testWidth = pdf.getTextWidth(testLine)
+
+        if (testWidth > maxWidth && currentLine !== '') {
+          // Check if next word starts with a number/metric pattern
+          const nextWord = words[i + 1]
+          const isMetricPattern = /^\d+%?\s*(users?|transactions?|developers?|downloads?|customers?|clients?|requests?|calls?|messages?|emails?|views?|visitors?|subscribers?|members?|projects?|products?|services?|teams?|partners?|investors?|employees?|students?|teachers?|courses?|lessons?|hours?|days?|weeks?|months?|years?)?/i.test(nextWord || '')
+
+          if (isMetricPattern && i + 1 < words.length) {
+            // Keep metric pattern with current line
+            currentLine += ' ' + word
+            lines.push(currentLine.trim())
+            currentLine = ''
+          } else {
+            lines.push(currentLine.trim())
+            currentLine = word
+          }
+        } else {
+          currentLine = testLine
+        }
+      }
+
+      if (currentLine.trim()) {
+        lines.push(currentLine.trim())
+      }
+
+      return lines.length > 0 ? lines : [text]
+    }
+
+    // ========================================
+    // Header - Professional & Clean (like Canva)
+    // ========================================
+    const fullName = `${cvData.personal?.firstName || ''} ${cvData.personal?.lastName || ''}`.trim()
+
+    // Name - 22pt, bold, centered (larger for impact)
+    pdf.setFontSize(22)
+    pdf.setFont('helvetica', 'bold')
+    pdf.text(fullName, pageWidth / 2, yPosition, { align: 'center' })
+    yPosition += 7
+
+    // Title - 14pt, centered, with more spacing
+    const title = cvData.professional?.currentTitle || 'Professional'
+    pdf.setFontSize(14)
+    pdf.setFont('helvetica', 'normal')
+    pdf.text(title, pageWidth / 2, yPosition, { align: 'center' })
+    yPosition += 6
+
+    // Contact - 10pt, centered with better spacing
+    const contactParts: string[] = []
+    if (cvData.personal?.email) contactParts.push(cvData.personal.email)
+    if (cvData.personal?.phone) contactParts.push(cvData.personal.phone)
+
+    pdf.setFontSize(10)
+    pdf.setFont('helvetica', 'normal')
+    if (contactParts.length > 0) {
+      pdf.text(contactParts.join(' | '), pageWidth / 2, yPosition, { align: 'center' })
+      yPosition += 5
+    }
+
+    const linkParts: string[] = []
+    if (cvData.personal?.linkedIn) linkParts.push(cvData.personal.linkedIn)
+    if (cvData.personal?.portfolio) linkParts.push(cvData.personal.portfolio)
+    if (linkParts.length > 0) {
+      pdf.setFontSize(9)
+      pdf.text(linkParts.join(' | '), pageWidth / 2, yPosition, { align: 'center' })
+      yPosition += 5
+    }
+
+    yPosition += 7 // More space after header
+
+    // ========================================
+    // Professional Summary
+    // ========================================
+    if (cvData.professional?.summary) {
+      yPosition = checkNewPage(yPosition)
+
+      // Section title - 13pt, bold, uppercase, with underline (larger & bolder)
+      pdf.setFontSize(13)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('PROFESSIONAL SUMMARY', margin, yPosition)
+      yPosition += 2.5
+
+      // Thicker underline for better visual separation
+      pdf.setDrawColor(0, 0, 0)
+      pdf.setLineWidth(0.5)
+      pdf.line(margin, yPosition, pageWidth - margin, yPosition)
+      yPosition += 5
+
+      // Summary text - 11pt with better line height
+      pdf.setFontSize(fontSize)
+      pdf.setFont('helvetica', 'normal')
+      const summaryLines = wrapTextSmartly(cvData.professional.summary || '', maxWidth)
+      summaryLines.forEach((line) => {
+        yPosition = checkNewPage(yPosition)
+        pdf.text(line, margin, yPosition)
+        yPosition += 5.5 // Better line height
+      })
+      yPosition += 6 // More space after section
+    }
+
+    // ========================================
+    // Experience
+    // ========================================
+    if (cvData.experience && cvData.experience.length > 0) {
+      yPosition = checkNewPage(yPosition)
+
+      // Section title - 13pt, bold, uppercase with thicker underline
+      pdf.setFontSize(13)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('EXPERIENCE', margin, yPosition)
+      yPosition += 2.5
+
+      // Thicker underline for better visual separation
+      pdf.setDrawColor(0, 0, 0)
+      pdf.setLineWidth(0.5)
+      pdf.line(margin, yPosition, pageWidth - margin, yPosition)
+      yPosition += 5
+
+      // Auto-sort by date (most recent first)
+      const sortedExperience = [...cvData.experience].sort((a, b) => {
+        const dateA = parseDateValue(a.endDate || a.startDate)
+        const dateB = parseDateValue(b.endDate || b.startDate)
+        if (!dateA) return 1
+        if (!dateB) return -1
+        return dateB.getTime() - dateA.getTime()
+      })
+
+      console.log('[PDF Compiler] Experience auto-sorted by date (most recent first)')
+
+      sortedExperience.forEach((exp) => {
+        yPosition = checkNewPage(yPosition)
+        yPosition += 2
+
+        // Role + Company on LEFT, Date on RIGHT
+        const dateStr = exp.current
+          ? `${formatDate(exp.startDate)} - Present`
+          : `${formatDate(exp.startDate)} - ${formatDate(exp.endDate)}`
+
+        const headerText = `${exp.role || ''} - ${exp.company || ''}`
+
+        // Left: bold role/company
+        pdf.setFontSize(fontSize)
+        pdf.setFont('helvetica', 'bold')
+        pdf.text(headerText, margin, yPosition)
+
+        // Right: normal date (right-aligned)
+        pdf.setFontSize(fontSize - 1)
+        pdf.setFont('helvetica', 'normal')
+        pdf.text(dateStr, pageWidth - margin, yPosition, { align: 'right' })
+
+        yPosition += 5
+
+        // Highlights - with professional bullets (•) and better indentation
+        if (exp.highlights && exp.highlights.length > 0) {
+          pdf.setFontSize(fontSize)
+          pdf.setFont('helvetica', 'normal')
+
+          exp.highlights.forEach((highlight) => {
+            yPosition = checkNewPage(yPosition)
+            const bulletWidth = pdf.getTextWidth('•  ')
+            const availableWidth = maxWidth - bulletWidth - 3
+
+            // Use smart wrapping that preserves metrics/numbers
+            const highlightLines = wrapTextSmartly(highlight, availableWidth)
+
+            highlightLines.forEach((line: string, index: number) => {
+              yPosition = checkNewPage(yPosition)
+              if (index === 0) {
+                pdf.text('•  ' + line, margin, yPosition)
+              } else {
+                pdf.text('    ' + line, margin, yPosition)
+              }
+              yPosition += 5 // Better line height for bullets
+            })
+          })
+        }
+
+        yPosition += 5 // More space between experiences
+      })
+
+      yPosition += 6 // More space after section
+    }
+
+    // ========================================
+    // Projects
+    // ========================================
+    if (cvData.projects && cvData.projects.length > 0) {
+      yPosition = checkNewPage(yPosition)
+
+      // Section title
+      pdf.setFontSize(12)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('PROJECTS', margin, yPosition)
+      yPosition += 2
+
+      // Underline
+      pdf.setDrawColor(0, 0, 0)
+      pdf.setLineWidth(0.3)
+      pdf.line(margin, yPosition, pageWidth - margin, yPosition)
+      yPosition += 4
+
+      // Auto-sort by date (most recent first)
+      const sortedProjects = [...cvData.projects].sort((a, b) => {
+        const dateA = parseDateValue(a.endDate || a.startDate)
+        const dateB = parseDateValue(b.endDate || b.startDate)
+        if (!dateA) return 1
+        if (!dateB) return -1
+        return dateB.getTime() - dateA.getTime()
+      })
+
+      console.log('[PDF Compiler] Projects auto-sorted by date (most recent first)')
+
+      sortedProjects.forEach((proj) => {
+        yPosition = checkNewPage(yPosition)
+        yPosition += 2
+
+        // Project name - Bold
+        pdf.setFontSize(fontSize)
+        pdf.setFont('helvetica', 'bold')
+        pdf.text(`${proj.name || ''}`, margin, yPosition)
+        yPosition += 4
+
+        // Description
+        if (proj.description) {
+          pdf.setFontSize(fontSize)
+          pdf.setFont('helvetica', 'normal')
+          const descLines = pdf.splitTextToSize(proj.description, maxWidth)
+          pdf.text(descLines, margin, yPosition)
+          yPosition += descLines.length * 5 + 2
+        }
+
+        // Tech Stack - Italic
+        if (proj.technologies && proj.technologies.length > 0) {
+          yPosition = checkNewPage(yPosition)
+          pdf.setFontSize(fontSize - 1)
+          pdf.setFont('helvetica', 'italic')
+          const techText = `Tech Stack: ${proj.technologies.join(', ')}`
+          const techLines = pdf.splitTextToSize(techText, maxWidth)
+          pdf.text(techLines, margin, yPosition)
+          yPosition += techLines.length * 4 + 2
+        }
+
+        yPosition += 5
+      })
+
+      yPosition += 4
+    }
+
+    // ========================================
+    // Education
+    // ========================================
+    if (cvData.education && cvData.education.length > 0) {
+      yPosition = checkNewPage(yPosition)
+
+      // Section title
+      pdf.setFontSize(12)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('EDUCATION', margin, yPosition)
+      yPosition += 2
+
+      // Underline
+      pdf.setDrawColor(0, 0, 0)
+      pdf.setLineWidth(0.3)
+      pdf.line(margin, yPosition, pageWidth - margin, yPosition)
+      yPosition += 4
+
+      cvData.education.forEach((edu) => {
+        yPosition = checkNewPage(yPosition)
+        yPosition += 2
+
+        const school = edu.school || ''
+        const degree = edu.degree || ''
+
+        // Use 'field' as starting date (MM/YYYY format), fallback to 'startDate'
+        const formattedStart = formatDate(edu.field || edu.startDate)
+        const gradYear = edu.graduationYear || ''
+        const dateStr = formattedStart
+          ? `${formattedStart} – ${gradYear || 'Present'}`
+          : gradYear
+
+        pdf.setFontSize(fontSize)
+
+        // Draw School name in BOLD
+        pdf.setFont('helvetica', 'bold')
+        const schoolWidth = pdf.getTextWidth(school)
+        pdf.text(school, margin, yPosition)
+
+        // Draw ", Degree" in NORMAL
+        if (degree) {
+          pdf.setFont('helvetica', 'normal')
+          pdf.text(`, ${degree}`, margin + schoolWidth, yPosition)
+        }
+
+        // Draw Date range RIGHT-aligned
+        if (dateStr) {
+          pdf.setFontSize(fontSize - 1)
+          pdf.setFont('helvetica', 'normal')
+          pdf.text(dateStr, pageWidth - margin, yPosition, { align: 'right' })
+        }
+
+        yPosition += 5
+      })
+
+      yPosition += 4
+    }
+
+    // ========================================
+    // Skills
+    // ========================================
+    if (cvData.skills && Object.keys(cvData.skills).length > 0) {
+      yPosition = checkNewPage(yPosition)
+
+      // Section title
+      pdf.setFontSize(12)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('SKILLS', margin, yPosition)
+      yPosition += 2
+
+      // Underline
+      pdf.setDrawColor(0, 0, 0)
+      pdf.setLineWidth(0.3)
+      pdf.line(margin, yPosition, pageWidth - margin, yPosition)
+      yPosition += 4
+
+      // Each skill category on its own line
+      Object.entries(cvData.skills).forEach(([category, skillList]) => {
+        if (!skillList || skillList.length === 0) return
+
+        yPosition = checkNewPage(yPosition)
+
+        pdf.setFontSize(fontSize)
+        pdf.setFont('helvetica', 'bold')
+
+        const categoryText = `${category}: `
+        const skillsText = skillList.join(', ')
+        const fullText = categoryText + skillsText
+
+        const textLines = pdf.splitTextToSize(fullText, maxWidth)
+
+        textLines.forEach((line: string, index: number) => {
+          yPosition = checkNewPage(yPosition)
+
+          if (index === 0) {
+            const categoryWidth = pdf.getTextWidth(categoryText)
+            pdf.text(categoryText, margin, yPosition)
+
+            pdf.setFont('helvetica', 'normal')
+            const remainingText = line.substring(categoryText.length) || skillsText
+            pdf.text(remainingText, margin + categoryWidth, yPosition)
+          } else {
+            pdf.setFont('helvetica', 'normal')
+            pdf.text(line, margin, yPosition)
+          }
+
+          yPosition += 4.5
+        })
+      })
+    }
+
+    console.log('[PDF Compiler] PDF generation complete')
+
+    const pdfBlob = pdf.output('blob')
+    return {
+      success: true,
+      pdfBlob
+    }
+  } catch (error) {
+    console.error('[PDF Compiler] Error:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }
   }
 }

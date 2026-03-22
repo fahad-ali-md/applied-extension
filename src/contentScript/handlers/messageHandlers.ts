@@ -99,6 +99,46 @@ export function setupMessageHandlers(): void {
       handleDetectFields(sendResponse)
       return
     }
+
+    // Upload CV
+    if (request.action === 'uploadCV') {
+      handleUploadCV(request, sendResponse)
+      return true
+    }
+  })
+}
+
+/**
+ * Handle uploadCV message
+ */
+function handleUploadCV(request: any, sendResponse: (response?: any) => void): void {
+  import('../core/FileUploader').then(({ getFileUploader }) => {
+    try {
+      const uploader = getFileUploader()
+
+      if (!request.pdfBase64) {
+        throw new Error('No PDF data provided')
+      }
+
+      const binaryString = atob(request.pdfBase64)
+      const bytes = new Uint8Array(binaryString.length)
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i)
+      }
+      const blob = new Blob([bytes], { type: 'application/pdf' })
+
+      uploader.uploadCVToAllInputs(blob, request.filename || 'cv.pdf')
+        .then(stats => {
+          sendResponse({ success: true, stats })
+        })
+        .catch((err: Error) => {
+          sendResponse({ success: false, error: err.message })
+        })
+    } catch (err: any) {
+      sendResponse({ success: false, error: err.message })
+    }
+  }).catch((err: Error) => {
+    sendResponse({ success: false, error: `Failed to load FileUploader: ${err.message}` })
   })
 }
 

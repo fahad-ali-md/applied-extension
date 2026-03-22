@@ -16,7 +16,8 @@
     "node": ">=14.18.0"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --mode development",
+    "watch": "tsc && vite build --watch",
     "build": "tsc && vite build && npm run build:puppeteer",
     "build:puppeteer": "rollup -c rollup.config.js",
     "build:all": "npm run build:puppeteer && npm run build",
@@ -26,7 +27,11 @@
     "generate:pdf": "tsx generate-cv-pdf.ts"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@openrouter/sdk": "^0.9.11",
+    "html2pdf.js": "^0.14.0",
     "jspdf": "^2.5.2",
     "libphonenumber-js": "^1.12.39",
     "pdfjs-dist": "^5.5.207",
